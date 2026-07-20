@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.6.2
+# CallBridge Softphone v0.6.3
 
 Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
@@ -24,6 +24,9 @@ If the `publish` folder is present, the launcher starts the compiled app. Otherw
 - Connector API health check against `http://127.0.0.1:8787`
 - Call control wiring for the CallBridge Internal telephony endpoints
 - Contacts, call history, messages, voicemail, parking, recordings, and MSP action views
+- Double-click callable rows to load the dialer and start a call
+- Settings validation and API connection testing
+- Dashboard rows route to settings, health checks, or staged workflow notices
 
 ## Provider status
 

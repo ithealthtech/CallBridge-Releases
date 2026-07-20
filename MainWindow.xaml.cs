@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.6.2";
+    private const string Version = "0.6.3";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -52,6 +52,8 @@ public partial class MainWindow : Window
         TransferButton.Click += async (_, _) => await TransferAsync();
         DtmfButton.Click += async (_, _) => await SendDtmfAsync();
         SearchBox.TextChanged += (_, _) => RenderRows(FilterRows(SearchBox.Text));
+        MainList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(MainList);
+        RowsList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(RowsList);
 
         DashboardButton.Click += (_, _) => ShowRows("Dashboard", "Connector health, registration, and operational status", DashboardRows());
         PhoneButton.Click += (_, _) => RenderPhone();
@@ -73,6 +75,49 @@ public partial class MainWindow : Window
                 else await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = digit });
             };
         }
+    }
+
+    private async Task ActivateSelectedRowAsync(ListBox list)
+    {
+        if (list.SelectedItem is not RowItem row) return;
+
+        if (row.Action.Equals("Call", StringComparison.OrdinalIgnoreCase))
+        {
+            var destination = ExtractDestination(row.Detail);
+            if (string.IsNullOrWhiteSpace(destination)) destination = row.Title;
+            DialText.Text = destination;
+            RenderPhone();
+            await ToggleCallAsync();
+            return;
+        }
+
+        if (row.Action.Equals("Edit", StringComparison.OrdinalIgnoreCase) || row.Action.Equals("Open", StringComparison.OrdinalIgnoreCase))
+        {
+            if (row.Title.Contains("Provider", StringComparison.OrdinalIgnoreCase) ||
+                row.Title.Contains("Extension", StringComparison.OrdinalIgnoreCase) ||
+                row.Title.Contains("API", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowSettings();
+                return;
+            }
+        }
+
+        if (row.Action.Equals("Test", StringComparison.OrdinalIgnoreCase))
+        {
+            await RefreshHealthAsync();
+            ShowRows("Dashboard", "Connector health, registration, and operational status", DashboardRows());
+            return;
+        }
+
+        MessageBox.Show($"{row.Title}\n\n{row.Detail}\n\nThis workflow is staged in the UI and ready for backend integration.", "CallBridge");
+    }
+
+    private static string ExtractDestination(string detail)
+    {
+        var phone = System.Text.RegularExpressions.Regex.Match(detail, @"\([0-9]{3}\)\s*[0-9]{3}-[0-9]{4}");
+        if (phone.Success) return phone.Value;
+        var extension = System.Text.RegularExpressions.Regex.Match(detail, @"Extension\s+[0-9]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return extension.Success ? extension.Value.Replace("Extension", "", StringComparison.OrdinalIgnoreCase).Trim() : "";
     }
 
     private void ApplyTemplates()
@@ -229,6 +274,7 @@ public partial class MainWindow : Window
         RegisterButton.Content = _registered ? "Unregister" : "Register";
         PresenceText.Text = _registered ? "Available" : "Available";
         PresenceDot.Fill = _registered ? Brush("#42B7A8") : Brush("#DFAE4B");
+        CallStateText.Text = _registered ? $"READY - {_settings.Provider.ToUpperInvariant()}" : "READY";
     }
 
     private async Task ToggleCallAsync()
@@ -445,6 +491,7 @@ public sealed class AppSettings
 
 public sealed class SettingsWindow : Window
 {
+    private readonly TextBlock _status = new() { Margin = new Thickness(0, 10, 0, 0), Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)) };
     private readonly TextBox _api = Field();
     private readonly TextBox _extension = Field();
     private readonly TextBox _callerId = Field();
@@ -523,9 +570,24 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(_startup);
         stack.Children.Add(_topmost);
 
-        var save = new Button { Content = "Save settings", Margin = new Thickness(0, 18, 0, 0), Padding = new Thickness(14), Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
+        var test = new Button { Content = "Test API", Padding = new Thickness(14), Margin = new Thickness(0, 0, 10, 0) };
+        var save = new Button { Content = "Save settings", Padding = new Thickness(14), Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White };
+        test.Click += async (_, _) => await TestApiAsync();
         save.Click += (_, _) =>
         {
+            if (string.IsNullOrWhiteSpace(_api.Text) || !Uri.TryCreate(_api.Text.TrimEnd('/'), UriKind.Absolute, out _))
+            {
+                _status.Text = "Enter a valid absolute API URL.";
+                _status.Foreground = Brushes.Firebrick;
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_extension.Text))
+            {
+                _status.Text = "Extension is required.";
+                _status.Foreground = Brushes.Firebrick;
+                return;
+            }
             Settings.ApiBase = _api.Text.TrimEnd('/');
             Settings.Extension = _extension.Text;
             Settings.CallerId = _callerId.Text;
@@ -541,8 +603,34 @@ public sealed class SettingsWindow : Window
             SetStartup(Settings.LaunchAtStartup);
             DialogResult = true;
         };
-        stack.Children.Add(save);
+        buttons.Children.Add(test);
+        buttons.Children.Add(save);
+        stack.Children.Add(buttons);
+        stack.Children.Add(_status);
         return stack;
+    }
+
+    private async Task TestApiAsync()
+    {
+        if (!Uri.TryCreate(_api.Text.TrimEnd('/'), UriKind.Absolute, out var baseUri))
+        {
+            _status.Text = "Enter a valid absolute API URL.";
+            _status.Foreground = Brushes.Firebrick;
+            return;
+        }
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            using var response = await client.GetAsync(new Uri(baseUri, "/health"));
+            _status.Text = response.IsSuccessStatusCode ? "Connector API responded successfully." : $"Connector returned HTTP {(int)response.StatusCode}.";
+            _status.Foreground = response.IsSuccessStatusCode ? Brushes.SeaGreen : Brushes.Firebrick;
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"Connection failed: {ex.Message}";
+            _status.Foreground = Brushes.Firebrick;
+        }
     }
 
     private static TextBlock Label(string text) => new() { Text = text.ToUpperInvariant(), Margin = new Thickness(0, 16, 0, 8), FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(17, 136, 182)) };
