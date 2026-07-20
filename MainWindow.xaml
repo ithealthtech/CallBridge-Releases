@@ -318,7 +318,12 @@
                             <TextBlock x:Name="ListHeading" Text="Contacts" FontSize="30" FontWeight="SemiBold"/>
                             <TextBlock x:Name="ListSubheading" Text="People and extensions" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
                         </StackPanel>
-                        <TextBox x:Name="SearchBox" DockPanel.Dock="Right" Width="280" Height="38" VerticalAlignment="Center"/>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="ImportContactsButton" Content="Import CSV" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="ClearContactsButton" Content="Clear imports" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="RefreshRowsButton" Content="Refresh" Padding="14,8" Margin="0,0,12,0"/>
+                            <TextBox x:Name="SearchBox" Width="240" Height="38" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </DockPanel>
                     <Border Grid.Row="2" Style="{StaticResource PanelBorder}" Padding="18">
                         <ListBox x:Name="RowsList" BorderThickness="0" Background="Transparent" ItemTemplate="{StaticResource RowItemTemplate}" ItemContainerStyle="{StaticResource SoftListItem}"/>

@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.6.5";
+    private const string Version = "0.7.0";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -52,6 +52,9 @@ public partial class MainWindow : Window
         TransferButton.Click += async (_, _) => await TransferAsync();
         DtmfButton.Click += async (_, _) => await SendDtmfAsync();
         SearchBox.TextChanged += (_, _) => RenderRows(FilterRows(SearchBox.Text));
+        ImportContactsButton.Click += async (_, _) => await ImportContactsAsync();
+        ClearContactsButton.Click += async (_, _) => await ClearImportedContactsAsync();
+        RefreshRowsButton.Click += async (_, _) => await RefreshCurrentViewAsync();
         MainList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(MainList);
         RowsList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(RowsList);
 
@@ -83,7 +86,8 @@ public partial class MainWindow : Window
 
         if (row.Action.Equals("Call", StringComparison.OrdinalIgnoreCase))
         {
-            var destination = ExtractDestination(row.Detail);
+            var destination = row.Destination;
+            if (string.IsNullOrWhiteSpace(destination)) destination = ExtractDestination(row.Detail);
             if (string.IsNullOrWhiteSpace(destination)) destination = row.Title;
             DialText.Text = destination;
             await RenderPhoneAsync();
@@ -208,7 +212,79 @@ public partial class MainWindow : Window
         _currentRows = rows;
         PhoneView.Visibility = Visibility.Collapsed;
         ListView.Visibility = Visibility.Visible;
+        ImportContactsButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        ClearContactsButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
         RenderRows(rows);
+    }
+
+    private async Task RefreshCurrentViewAsync()
+    {
+        if (PageTitle.Text == "Contacts") ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
+        else if (PageTitle.Text == "Call history") ShowRows("Call history", "Inbound, outbound, and missed calls", await HistoryRowsAsync());
+        else if (PageTitle.Text == "Dashboard") ShowRows("Dashboard", "Connector health, registration, and operational status", await DashboardRowsAsync());
+    }
+
+    private async Task ImportContactsAsync()
+    {
+        var picker = new OpenFileDialog { Filter = "CSV contact files (*.csv)|*.csv", Title = "Import CallBridge contacts" };
+        if (picker.ShowDialog(this) != true) return;
+        try
+        {
+            var lines = await File.ReadAllLinesAsync(picker.FileName);
+            if (lines.Length < 2) throw new InvalidDataException("The CSV must contain a header and at least one contact.");
+            var headers = ParseCsvLine(lines[0]).Select(h => h.Trim().ToLowerInvariant()).ToList();
+            int companyIndex = FindHeader(headers, "company", "companyname", "organization");
+            int contactIndex = FindHeader(headers, "contact", "contactname", "name");
+            int phoneIndex = FindHeader(headers, "phone", "phonenumber", "number", "mobile");
+            if (companyIndex < 0 || phoneIndex < 0) throw new InvalidDataException("Required columns: Company and Phone. Contact is optional.");
+            var records = new List<object>();
+            for (int i = 1; i < lines.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i])) continue;
+                var cells = ParseCsvLine(lines[i]);
+                var company = Cell(cells, companyIndex);
+                var contact = Cell(cells, contactIndex);
+                var phone = Cell(cells, phoneIndex);
+                if (string.IsNullOrWhiteSpace(company) || string.IsNullOrWhiteSpace(phone)) throw new InvalidDataException($"Row {i + 1} requires Company and Phone.");
+                records.Add(new { companyName = company, contactName = contact, phones = new[] { phone } });
+            }
+            if (records.Count == 0) throw new InvalidDataException("No contacts were found in the CSV.");
+            var json = JsonSerializer.Serialize(new { records }, JsonOptions());
+            using var request = new HttpRequestMessage(HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}/directory") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            using var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
+            MessageBox.Show($"Imported {records.Count} contacts. They are saved in CallBridge and ready to search or dial.", "CallBridge");
+        }
+        catch (Exception ex) { MessageBox.Show($"Import failed: {ex.Message}", "CallBridge"); }
+    }
+
+    private async Task ClearImportedContactsAsync()
+    {
+        if (MessageBox.Show("Remove all contacts previously loaded by CSV import?", "CallBridge", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        try
+        {
+            using var response = await _http.DeleteAsync($"{_settings.ApiBase.TrimEnd('/')}/directory");
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
+        }
+        catch (Exception ex) { MessageBox.Show($"Could not clear imported contacts: {ex.Message}", "CallBridge"); }
+    }
+
+    private static int FindHeader(List<string> headers, params string[] names) => headers.FindIndex(h => names.Contains(h.Replace(" ", "")));
+    private static string Cell(List<string> cells, int index) => index >= 0 && index < cells.Count ? cells[index].Trim() : "";
+    private static List<string> ParseCsvLine(string line)
+    {
+        var cells = new List<string>(); var value = new StringBuilder(); bool quoted = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '"' && quoted && i + 1 < line.Length && line[i + 1] == '"') { value.Append('"'); i++; }
+            else if (c == '"') quoted = !quoted;
+            else if (c == ',' && !quoted) { cells.Add(value.ToString()); value.Clear(); }
+            else value.Append(c);
+        }
+        cells.Add(value.ToString()); return cells;
     }
 
     private void RenderRows(IEnumerable<RowItem> rows)
@@ -423,7 +499,7 @@ public partial class MainWindow : Window
                     var contact = Value(record, "contactName");
                     var phone = Value(record, "phone");
                     var title = string.IsNullOrWhiteSpace(contact) ? company : contact;
-                    return new RowItem(title, $"{phone} - {company}", "Call");
+                    return new RowItem(title, $"{phone} - {company}", "Call", phone);
                 }).Where(r => !string.IsNullOrWhiteSpace(r.Title) && !string.IsNullOrWhiteSpace(r.Detail)).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("No live directory records are available yet. Connect a real directory sync source to populate contacts.");
             }
@@ -480,7 +556,7 @@ public partial class MainWindow : Window
         (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 }
 
-public sealed record RowItem(string Title, string Detail, string Action)
+public sealed record RowItem(string Title, string Detail, string Action, string Destination = "")
 {
     public override string ToString() => $"{Title}\n{Detail}    {Action}";
 }
