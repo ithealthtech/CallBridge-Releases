@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.6.3";
+    private const string Version = "0.6.4";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();

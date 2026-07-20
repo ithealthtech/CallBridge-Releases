@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.6.3
+# CallBridge Softphone v0.6.4
 
 Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
@@ -9,6 +9,8 @@ Double-click:
 ```text
 run-softphone.cmd
 ```
+
+The launcher starts the local CallBridge Internal backend on `127.0.0.1:8787` when it is not already running, waits briefly for `/health`, then starts the desktop app.
 
 If the `publish` folder is present, the launcher starts the compiled app. Otherwise it runs the project with the installed .NET 8 SDK.
 
@@ -27,6 +29,7 @@ If the `publish` folder is present, the launcher starts the compiled app. Otherw
 - Double-click callable rows to load the dialer and start a call
 - Settings validation and API connection testing
 - Dashboard rows route to settings, health checks, or staged workflow notices
+- Auto-start launcher for CallBridge Internal v0.7 so `127.0.0.1:8787` is not cold by default
 
 ## Provider status
 
