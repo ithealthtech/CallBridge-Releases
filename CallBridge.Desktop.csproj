@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Content Include="Assets\ithealthtech-logo.png" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="tests\**\*.cs" />
   </ItemGroup>
 
 </Project>

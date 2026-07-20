@@ -1,18 +1,21 @@
 using Microsoft.Win32;
 using System.IO;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.8.0";
-    private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
+    private const string Version = "0.9.0";
+    private readonly string _settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IT Health Technologies", "CallBridge", "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
     private string? _activeCallId;
@@ -20,6 +23,7 @@ public partial class MainWindow : Window
     private bool _muted;
     private bool _held;
     private List<RowItem> _currentRows = [];
+    private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(5) };
 
     public MainWindow()
     {
@@ -30,6 +34,9 @@ public partial class MainWindow : Window
         ApplyBranding();
         _ = RenderPhoneAsync();
         _ = RefreshHealthAsync();
+        _statusTimer.Tick += async (_, _) => await RefreshOperationalStatusAsync();
+        _statusTimer.Start();
+        Closed += (_, _) => { _statusTimer.Stop(); _http.Dispose(); };
     }
 
     private void WireEvents()
@@ -167,10 +174,29 @@ public partial class MainWindow : Window
 
     private void LoadSettings()
     {
-        if (File.Exists(_settingsPath))
+        Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
+        var legacyPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
+        var sourcePath = File.Exists(_settingsPath) ? _settingsPath : legacyPath;
+        if (File.Exists(sourcePath))
         {
-            var json = File.ReadAllText(_settingsPath);
-            _settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions()) ?? new AppSettings();
+            try
+            {
+                var json = File.ReadAllText(sourcePath);
+                _settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions()) ?? new AppSettings();
+                if (!string.IsNullOrWhiteSpace(_settings.SipPasswordProtected)) _settings.SipPassword = CredentialProtector.Unprotect(_settings.SipPasswordProtected);
+                else
+                {
+                    using var legacy = JsonDocument.Parse(json);
+                    if (legacy.RootElement.TryGetProperty("sipPassword", out var oldPassword)) _settings.SipPassword = oldPassword.GetString() ?? "";
+                }
+                SaveSettings(false);
+            }
+            catch
+            {
+                _settings = new AppSettings();
+                SaveSettings(false);
+                MessageBox.Show("CallBridge settings could not be read and were reset to safe defaults.", "CallBridge");
+            }
         }
         else
         {
@@ -180,6 +206,8 @@ public partial class MainWindow : Window
 
     private void SaveSettings(bool apply)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
+        _settings.SipPasswordProtected = string.IsNullOrWhiteSpace(_settings.SipPassword) ? "" : CredentialProtector.Protect(_settings.SipPassword);
         File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, JsonOptions()));
         if (apply) ApplyBranding();
     }
@@ -375,35 +403,47 @@ public partial class MainWindow : Window
 
     private async Task ToggleRegistrationAsync()
     {
-        if (_registered)
-        {
-            _registered = false;
-            UpdateProviderStatus();
-            return;
-        }
-
         if (_settings.Provider == "Axion / Noixa pending")
         {
             MessageBox.Show("Axion/Noixa calling requires their approved SBC/WebRTC integration details. This provider is intentionally blocked until those are supplied.", "CallBridge");
             return;
         }
 
-        if (_settings.Provider == "Standard SIP test" && string.IsNullOrWhiteSpace(_settings.SipServer))
+        if (_settings.Provider == "Standard SIP test")
         {
-            MessageBox.Show("Add a SIP server, username, and password in Settings before registering the Standard SIP provider.", "CallBridge");
+            MessageBox.Show("The installed backend does not include a real SIP media driver. Standard SIP registration is unavailable until a supported driver is installed; CallBridge will not report a simulated registration.", "CallBridge");
             return;
         }
+        var result = await PostTelephonyAsync(_registered ? "/telephony/unregister" : "/telephony/register", new { extension = _settings.Extension });
+        if (!result.Success) { ShowApiError(result.Message); return; }
+        await RefreshOperationalStatusAsync();
+    }
 
-        _registered = true;
-        UpdateProviderStatus();
-        await Task.CompletedTask;
+    private async Task RefreshOperationalStatusAsync()
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/telephony/status");
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (doc.RootElement.TryGetProperty("registration", out var registration))
+                _registered = Value(registration, "state").Equals("registered", StringComparison.OrdinalIgnoreCase);
+            if (_settings.Provider != "Mock provider") _registered = false;
+            UpdateProviderStatus();
+        }
+        catch
+        {
+            _registered = false;
+            RegistrationMetric.Text = "Unavailable";
+            RegisterButton.Content = "Register";
+        }
     }
 
     private void UpdateProviderStatus()
     {
         RegistrationMetric.Text = _registered ? "Registered" : "Not registered";
         RegisterButton.Content = _registered ? "Unregister" : "Register";
-        PresenceText.Text = _registered ? "Available" : "Available";
+        PresenceText.Text = _registered ? "Available" : "Offline";
         PresenceDot.Fill = _registered ? Brush("#42B7A8") : Brush("#DFAE4B");
         CallStateText.Text = _registered ? $"READY - {_settings.Provider.ToUpperInvariant()}" : "READY";
     }
@@ -412,7 +452,8 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is not null)
         {
-            await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/hangup", new { });
+            var hangup = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/hangup", new { });
+            if (!hangup.Success) { ShowApiError(hangup.Message); return; }
             EndLocalCall("READY");
             return;
         }
@@ -425,7 +466,8 @@ public partial class MainWindow : Window
         }
 
         var apiCall = await PostTelephonyAsync("/telephony/calls", new { destination = DialText.Text, callerId = _settings.Extension });
-        _activeCallId = apiCall ?? $"local-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        if (!apiCall.Success || string.IsNullOrWhiteSpace(apiCall.CallId)) { ShowApiError(apiCall.Message); return; }
+        _activeCallId = apiCall.CallId;
         CallStateText.Text = _settings.Provider == "Mock provider" ? "CONNECTED - LOCAL MOCK" : "CALL STARTED";
         ActiveCallMetric.Text = DialText.Text;
         CallButton.Content = "End call";
@@ -450,16 +492,20 @@ public partial class MainWindow : Window
     private async Task ToggleMuteAsync()
     {
         if (_activeCallId is null) return;
-        _muted = !_muted;
-        await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/mute", new { muted = _muted });
+        var requested = !_muted;
+        var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/mute", new { muted = requested });
+        if (!result.Success) { ShowApiError(result.Message); return; }
+        _muted = requested;
         MuteButton.Content = _muted ? "Unmute" : "Mute";
     }
 
     private async Task ToggleHoldAsync()
     {
         if (_activeCallId is null) return;
-        _held = !_held;
-        await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/{(_held ? "hold" : "resume")}", new { });
+        var requested = !_held;
+        var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/{(requested ? "hold" : "resume")}", new { });
+        if (!result.Success) { ShowApiError(result.Message); return; }
+        _held = requested;
         HoldButton.Content = _held ? "Resume" : "Hold";
         CallStateText.Text = _held ? "CALL ON HOLD" : "CONNECTED";
     }
@@ -470,7 +516,8 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Transfer call", "Destination extension or phone number");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
-            await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/transfer", new { destination = prompt.Value });
+            var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/transfer", new { destination = prompt.Value });
+            if (!result.Success) { ShowApiError(result.Message); return; }
             EndLocalCall($"TRANSFERRED TO {prompt.Value}");
         }
     }
@@ -481,26 +528,35 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Send DTMF", "Digits");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
-            await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = prompt.Value });
+            var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = prompt.Value });
+            if (!result.Success) ShowApiError(result.Message);
         }
     }
 
-    private async Task<string?> PostTelephonyAsync(string path, object payload)
+    private async Task<TelephonyResult> PostTelephonyAsync(string path, object payload)
     {
         try
         {
             var json = JsonSerializer.Serialize(payload, JsonOptions());
             using var response = await _http.PostAsync($"{_settings.ApiBase.TrimEnd('/')}{path}", new StringContent(json, Encoding.UTF8, "application/json"));
-            if (!response.IsSuccessStatusCode) return null;
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            if (doc.RootElement.TryGetProperty("call", out var call) && call.TryGetProperty("id", out var id)) return id.GetString();
+            var responseText = await response.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(responseText);
+            if (!response.IsSuccessStatusCode)
+            {
+                var message = doc.RootElement.TryGetProperty("message", out var error) ? error.GetString() : $"Connector returned HTTP {(int)response.StatusCode}.";
+                return new(false, null, message ?? "The connector rejected the operation.");
+            }
+            var callId = doc.RootElement.TryGetProperty("call", out var call) && call.TryGetProperty("id", out var id) ? id.GetString() : null;
+            return new(true, callId, "");
         }
-        catch
+        catch (Exception ex)
         {
             ApiMetric.Text = "Offline";
+            return new(false, null, $"Connector unavailable: {ex.Message}");
         }
-        return null;
     }
+
+    private static void ShowApiError(string message) => MessageBox.Show(message, "CallBridge", MessageBoxButton.OK, MessageBoxImage.Warning);
 
     private async Task<List<RowItem>> HistoryRowsAsync()
     {
@@ -620,6 +676,39 @@ public sealed record RowItem(string Title, string Detail, string Action, string 
     public override string ToString() => $"{Title}\n{Detail}    {Action}";
 }
 
+public sealed record TelephonyResult(bool Success, string? CallId, string Message);
+
+public static class CredentialProtector
+{
+    private const uint UiForbidden = 0x1;
+    [StructLayout(LayoutKind.Sequential)] private struct DataBlob { public int Length; public IntPtr Data; }
+    [DllImport("Crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CryptProtectData(ref DataBlob input, string? description, IntPtr entropy, IntPtr reserved, IntPtr prompt, uint flags, out DataBlob output);
+    [DllImport("Crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CryptUnprotectData(ref DataBlob input, IntPtr description, IntPtr entropy, IntPtr reserved, IntPtr prompt, uint flags, out DataBlob output);
+    [DllImport("Kernel32.dll")] private static extern IntPtr LocalFree(IntPtr memory);
+
+    public static string Protect(string value) => Convert.ToBase64String(Transform(Encoding.UTF8.GetBytes(value), true));
+    public static string Unprotect(string value) => Encoding.UTF8.GetString(Transform(Convert.FromBase64String(value), false));
+
+    private static byte[] Transform(byte[] bytes, bool protect)
+    {
+        var input = new DataBlob { Length = bytes.Length, Data = Marshal.AllocHGlobal(bytes.Length) };
+        try
+        {
+            Marshal.Copy(bytes, 0, input.Data, bytes.Length);
+            DataBlob output;
+            var ok = protect
+                ? CryptProtectData(ref input, "CallBridge SIP credential", IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, UiForbidden, out output)
+                : CryptUnprotectData(ref input, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, UiForbidden, out output);
+            if (!ok) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            try { var result = new byte[output.Length]; Marshal.Copy(output.Data, result, 0, output.Length); return result; }
+            finally { LocalFree(output.Data); }
+        }
+        finally { Marshal.FreeHGlobal(input.Data); }
+    }
+}
+
 public sealed class AppSettings
 {
     public string ApiBase { get; set; } = "http://127.0.0.1:8787";
@@ -628,7 +717,9 @@ public sealed class AppSettings
     public string Provider { get; set; } = "Mock provider";
     public string SipServer { get; set; } = "";
     public string SipUsername { get; set; } = "";
+    [JsonIgnore]
     public string SipPassword { get; set; } = "";
+    public string SipPasswordProtected { get; set; } = "";
     public string SipTransport { get; set; } = "TLS";
     public string Microphone { get; set; } = "Windows default communications device";
     public string Speaker { get; set; } = "Windows default communications device";
@@ -666,6 +757,7 @@ public sealed class SettingsWindow : Window
             SipServer = settings.SipServer,
             SipUsername = settings.SipUsername,
             SipPassword = settings.SipPassword,
+            SipPasswordProtected = settings.SipPasswordProtected,
             SipTransport = settings.SipTransport,
             Microphone = settings.Microphone,
             Speaker = settings.Speaker,
