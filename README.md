@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.4.0
+# CallBridge Softphone v0.5.0
 
 A dependency-free Windows desktop softphone prototype for Hive/Axion PBX workflows.
 
@@ -27,6 +27,11 @@ Double-click `run-softphone.cmd`. No installation, browser, port, Node.js, or np
 - Live mute, hold, resume, DTMF, and transfer controls
 - White-label product name, company name, colors, extension, and API settings
 - Provider-neutral customer-facing connection labels
+- Functional settings editor with persistent JSON storage
+- API connection testing
+- Windows audio-device enumeration
+- Windows startup registration
+- Always-on-top behavior applied only during active calls
 - Always-on-top and launch-at-startup preferences
 
 ## Telephony boundary
