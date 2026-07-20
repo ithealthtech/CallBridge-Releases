@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.6.4";
+    private const string Version = "0.6.5";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -28,7 +28,7 @@ public partial class MainWindow : Window
         ApplyTemplates();
         WireEvents();
         ApplyBranding();
-        RenderPhone();
+        _ = RenderPhoneAsync();
         _ = RefreshHealthAsync();
     }
 
@@ -55,9 +55,9 @@ public partial class MainWindow : Window
         MainList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(MainList);
         RowsList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(RowsList);
 
-        DashboardButton.Click += (_, _) => ShowRows("Dashboard", "Connector health, registration, and operational status", DashboardRows());
-        PhoneButton.Click += (_, _) => RenderPhone();
-        ContactsButton.Click += (_, _) => ShowRows("Contacts", "People, queues, and extensions", ContactRows());
+        DashboardButton.Click += async (_, _) => ShowRows("Dashboard", "Connector health, registration, and operational status", await DashboardRowsAsync());
+        PhoneButton.Click += async (_, _) => await RenderPhoneAsync();
+        ContactsButton.Click += async (_, _) => ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
         HistoryButton.Click += async (_, _) => ShowRows("Call history", "Inbound, outbound, and missed calls", await HistoryRowsAsync());
         MessagesButton.Click += (_, _) => ShowRows("Messages", "SMS and internal chat", MessageRows());
         VoicemailButton.Click += (_, _) => ShowRows("Voicemail", "New and saved voice messages", VoicemailRows());
@@ -86,7 +86,7 @@ public partial class MainWindow : Window
             var destination = ExtractDestination(row.Detail);
             if (string.IsNullOrWhiteSpace(destination)) destination = row.Title;
             DialText.Text = destination;
-            RenderPhone();
+            await RenderPhoneAsync();
             await ToggleCallAsync();
             return;
         }
@@ -105,7 +105,7 @@ public partial class MainWindow : Window
         if (row.Action.Equals("Test", StringComparison.OrdinalIgnoreCase))
         {
             await RefreshHealthAsync();
-            ShowRows("Dashboard", "Connector health, registration, and operational status", DashboardRows());
+            ShowRows("Dashboard", "Connector health, registration, and operational status", await DashboardRowsAsync());
             return;
         }
 
@@ -190,13 +190,13 @@ public partial class MainWindow : Window
         UpdateProviderStatus();
     }
 
-    private void RenderPhone()
+    private async Task RenderPhoneAsync()
     {
         PageTitle.Text = "Phone";
         PhoneView.Visibility = Visibility.Visible;
         ListView.Visibility = Visibility.Collapsed;
-        PanelHeading.Text = "Favorites";
-        MainList.ItemsSource = ContactRows().Take(5).ToList();
+        PanelHeading.Text = "Live directory";
+        MainList.ItemsSource = (await ContactRowsAsync()).Take(5).ToList();
     }
 
     private void ShowRows(string title, string subtitle, List<RowItem> rows)
@@ -380,67 +380,81 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if (doc.RootElement.TryGetProperty("events", out var events))
             {
-                return events.EnumerateArray().Select(e => new RowItem(
+                var rows = events.EnumerateArray().Select(e => new RowItem(
                     e.TryGetProperty("caller_number", out var n) ? n.GetString() ?? "Unknown caller" : "Unknown caller",
                     $"{Value(e, "direction")} - {Value(e, "state")} - {Value(e, "occurred_at")}",
                     "Call")).ToList();
+                return rows.Count > 0 ? rows : EmptyRows("No live call history is available yet. Calls and webhook events will appear here after real traffic is received.");
             }
         }
         catch { }
-        return
-        [
-            new("Simi Valley Dental Group", "Inbound - today 3:42 PM - 04:18", "Call"),
-            new("West Coast Manufacturing", "Missed - today 2:16 PM - (818) 555-0192", "Call"),
-            new("Northstar Property Management", "Outbound - today 11:08 AM - 12:06", "Call")
-        ];
+        return EmptyRows("Call history endpoint is unavailable. Start CallBridge Internal and check Settings > Test API.");
     }
 
     private static string Value(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) ? value.ToString() : "";
 
-    private List<RowItem> DashboardRows() =>
-    [
-        new("Provider", $"{_settings.Provider} - {(_registered ? "registered" : "not registered")}", "Open"),
-        new("Connector API", $"{_settings.ApiBase} - {ApiMetric.Text}", "Test"),
-        new("Extension", $"{_settings.Extension} - caller ID {_settings.CallerId}", "Edit"),
-        new("Axion status", "Blocked until official SBC/WebRTC integration details are supplied", "Review"),
-        new("MSP workflow", "Contact lookup, ticket creation, call notes, and activity logging ready for API wiring", "Open")
-    ];
+    private async Task<List<RowItem>> DashboardRowsAsync()
+    {
+        await RefreshHealthAsync();
+        var liveDirectoryCount = (await ContactRowsAsync()).Count(r => r.Action == "Call");
+        return
+        [
+            new("Provider", $"{_settings.Provider} - {(_registered ? "registered" : "not registered")}", "Open"),
+            new("Connector API", $"{_settings.ApiBase} - {ApiMetric.Text}", "Test"),
+            new("Extension", $"{_settings.Extension} - caller ID {_settings.CallerId}", "Edit"),
+            new("Directory", $"{liveDirectoryCount} live callable records", "Open"),
+            new("Axion status", "Blocked until official SBC/WebRTC integration details are supplied", "Review")
+        ];
+    }
 
-    private static List<RowItem> ContactRows() =>
-    [
-        new("Maria Jensen", "Available - (805) 555-0147 - Simi Valley Dental Group", "Call"),
-        new("Daniel Kim", "In a call - (818) 555-0192 - West Coast Manufacturing", "Call"),
-        new("Front Office", "Available - Extension 200", "Call"),
-        new("Support Queue", "2 agents available - Extension 600", "Call"),
-        new("After-hours escalation", "On call - Extension 700", "Call")
-    ];
+    private async Task<List<RowItem>> ContactRowsAsync()
+    {
+        try
+        {
+            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/directory");
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException();
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (doc.RootElement.TryGetProperty("records", out var records))
+            {
+                var rows = records.EnumerateArray().Select(record =>
+                {
+                    var company = Value(record, "companyName");
+                    var contact = Value(record, "contactName");
+                    var phone = Value(record, "phone");
+                    var title = string.IsNullOrWhiteSpace(contact) ? company : contact;
+                    return new RowItem(title, $"{phone} - {company}", "Call");
+                }).Where(r => !string.IsNullOrWhiteSpace(r.Title) && !string.IsNullOrWhiteSpace(r.Detail)).ToList();
+                return rows.Count > 0 ? rows : EmptyRows("No live directory records are available yet. Connect a real directory sync source to populate contacts.");
+            }
+        }
+        catch
+        {
+            return EmptyRows("Directory endpoint is unavailable. Start CallBridge Internal and check Settings > Test API.");
+        }
+        return EmptyRows("No live directory records are available yet.");
+    }
+
+    private static List<RowItem> EmptyRows(string message) => [new("No live data", message, "Open")];
 
     private static List<RowItem> MessageRows() =>
     [
-        new("Maria Jensen", "Can you call me when available? - 2 min", "Reply"),
-        new("Support Team", "Queue coverage updated - 18 min", "Open"),
-        new("Daniel Kim", "Thank you for the quick help - 1 hr", "Reply")
+        new("No live messages", "SMS/chat provider integration is not connected yet.", "Open")
     ];
 
     private static List<RowItem> VoicemailRows() =>
     [
-        new("New voicemail", "(805) 555-0122 - today 1:08 PM - 00:42", "Play"),
-        new("Saved voicemail", "Simi Valley Dental Group - yesterday - 01:14", "Play")
+        new("No live voicemail", "Voicemail provider integration is not connected yet.", "Open")
     ];
 
     private static List<RowItem> ParkingRows() =>
     [
-        new("Park 701", "Empty", "Park"),
-        new("Park 702", "Daniel Kim - 01:12", "Pickup"),
-        new("Park 703", "Empty", "Park")
+        new("No live parking slots", "Call parking integration is not connected yet.", "Open")
     ];
 
     private static List<RowItem> RecordingRows() =>
     [
-        new("Simi Valley Dental Group", "Inbound - 04:18 - review not required", "Open"),
-        new("West Coast Manufacturing", "Missed callback - no recording", "Details"),
-        new("Northstar Property Management", "Outbound - 12:06 - tagged support", "Open")
+        new("No live recordings", "Recording provider integration is not connected yet.", "Open")
     ];
 
     private static List<RowItem> MspRows() =>
