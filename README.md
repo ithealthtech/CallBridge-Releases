@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.7.0
+# CallBridge Softphone v0.8.0
 
 Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
@@ -32,6 +32,8 @@ If the `publish` folder is present, the launcher starts the compiled app. Otherw
 - Auto-start launcher for CallBridge Internal v0.8 so `127.0.0.1:8787` is not cold by default
 - Contacts and call history use live backend endpoints only.
 - Import real contacts from CSV using `Company,Contact,Phone` columns. Imports are persisted by CallBridge Internal.
+- Add, edit, and delete individual contacts from the Contacts screen.
+- Outbound call lifecycle events are persisted and displayed in Call history.
 - The launcher replaces orphaned port 8787 listeners and releases the port when the app closes.
 - Demo caller/contact fallback data has been removed from phone views.
 

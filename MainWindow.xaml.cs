@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.7.0";
+    private const string Version = "0.8.0";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -53,6 +53,9 @@ public partial class MainWindow : Window
         DtmfButton.Click += async (_, _) => await SendDtmfAsync();
         SearchBox.TextChanged += (_, _) => RenderRows(FilterRows(SearchBox.Text));
         ImportContactsButton.Click += async (_, _) => await ImportContactsAsync();
+        AddContactButton.Click += async (_, _) => await AddContactAsync();
+        EditContactButton.Click += async (_, _) => await EditSelectedContactAsync();
+        DeleteContactButton.Click += async (_, _) => await DeleteSelectedContactAsync();
         ClearContactsButton.Click += async (_, _) => await ClearImportedContactsAsync();
         RefreshRowsButton.Click += async (_, _) => await RefreshCurrentViewAsync();
         MainList.MouseDoubleClick += async (_, _) => await ActivateSelectedRowAsync(MainList);
@@ -214,7 +217,59 @@ public partial class MainWindow : Window
         ListView.Visibility = Visibility.Visible;
         ImportContactsButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
         ClearContactsButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        AddContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        EditContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        DeleteContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
         RenderRows(rows);
+    }
+
+    private async Task AddContactAsync()
+    {
+        var editor = new ContactWindow { Owner = this };
+        if (editor.ShowDialog() != true) return;
+        await SaveContactAsync(editor, null);
+    }
+
+    private async Task EditSelectedContactAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.ContactId))
+        {
+            MessageBox.Show("Select a contact first.", "CallBridge"); return;
+        }
+        var editor = new ContactWindow(row.Title, row.Company, row.Destination) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+        await SaveContactAsync(editor, row.ContactId);
+    }
+
+    private async Task SaveContactAsync(ContactWindow editor, string? contactId)
+    {
+        try
+        {
+            var payload = new { companyName = editor.CompanyName, contactName = editor.ContactName, phones = new[] { editor.Phone } };
+            var json = JsonSerializer.Serialize(payload, JsonOptions());
+            var path = contactId is null ? "/directory/contacts" : $"/directory/contacts/{Uri.EscapeDataString(contactId)}";
+            using var request = new HttpRequestMessage(contactId is null ? HttpMethod.Post : HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}{path}") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            using var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
+        }
+        catch (Exception ex) { MessageBox.Show($"Could not save contact: {ex.Message}", "CallBridge"); }
+    }
+
+    private async Task DeleteSelectedContactAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.ContactId))
+        {
+            MessageBox.Show("Select a contact first.", "CallBridge"); return;
+        }
+        if (MessageBox.Show($"Delete {row.Title}?", "CallBridge", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        try
+        {
+            using var response = await _http.DeleteAsync($"{_settings.ApiBase.TrimEnd('/')}/directory/contacts/{Uri.EscapeDataString(row.ContactId)}");
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
+        }
+        catch (Exception ex) { MessageBox.Show($"Could not delete contact: {ex.Message}", "CallBridge"); }
     }
 
     private async Task RefreshCurrentViewAsync()
@@ -456,10 +511,13 @@ public partial class MainWindow : Window
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if (doc.RootElement.TryGetProperty("events", out var events))
             {
-                var rows = events.EnumerateArray().Select(e => new RowItem(
-                    e.TryGetProperty("caller_number", out var n) ? n.GetString() ?? "Unknown caller" : "Unknown caller",
-                    $"{Value(e, "direction")} - {Value(e, "state")} - {Value(e, "occurred_at")}",
-                    "Call")).ToList();
+                var rows = events.EnumerateArray().Select(e =>
+                {
+                    var direction = Value(e, "direction");
+                    var number = direction.Equals("outbound", StringComparison.OrdinalIgnoreCase) ? Value(e, "called_number") : Value(e, "caller_number");
+                    return new RowItem(string.IsNullOrWhiteSpace(number) ? "Unknown number" : number,
+                        $"{direction} - {Value(e, "state")} - {Value(e, "occurred_at")}", "Call", number);
+                }).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("No live call history is available yet. Calls and webhook events will appear here after real traffic is received.");
             }
         }
@@ -498,8 +556,9 @@ public partial class MainWindow : Window
                     var company = Value(record, "companyName");
                     var contact = Value(record, "contactName");
                     var phone = Value(record, "phone");
+                    var contactId = Value(record, "contactId");
                     var title = string.IsNullOrWhiteSpace(contact) ? company : contact;
-                    return new RowItem(title, $"{phone} - {company}", "Call", phone);
+                    return new RowItem(title, $"{phone} - {company}", "Call", phone, contactId, company);
                 }).Where(r => !string.IsNullOrWhiteSpace(r.Title) && !string.IsNullOrWhiteSpace(r.Detail)).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("No live directory records are available yet. Connect a real directory sync source to populate contacts.");
             }
@@ -556,7 +615,7 @@ public partial class MainWindow : Window
         (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 }
 
-public sealed record RowItem(string Title, string Detail, string Action, string Destination = "")
+public sealed record RowItem(string Title, string Detail, string Action, string Destination = "", string ContactId = "", string Company = "")
 {
     public override string ToString() => $"{Title}\n{Detail}    {Action}";
 }
@@ -740,6 +799,39 @@ public sealed class SettingsWindow : Window
         if (key is null) return;
         if (enabled) key.SetValue("CallBridgeDesktop", $"\"{Environment.ProcessPath}\"");
         else key.DeleteValue("CallBridgeDesktop", false);
+    }
+}
+
+public sealed class ContactWindow : Window
+{
+    private readonly TextBox _contact = new() { Padding = new Thickness(9) };
+    private readonly TextBox _company = new() { Padding = new Thickness(9) };
+    private readonly TextBox _phone = new() { Padding = new Thickness(9) };
+    public string ContactName => _contact.Text.Trim();
+    public string CompanyName => _company.Text.Trim();
+    public string Phone => _phone.Text.Trim();
+
+    public ContactWindow(string contact = "", string company = "", string phone = "")
+    {
+        Title = string.IsNullOrWhiteSpace(contact) ? "Add contact" : "Edit contact";
+        Width = 440; Height = 330; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(246, 248, 251));
+        _contact.Text = contact; _company.Text = company; _phone.Text = phone;
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = Title, FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 14) });
+        AddField(stack, "Contact name", _contact); AddField(stack, "Company", _company); AddField(stack, "Phone or extension", _phone);
+        var save = new Button { Content = "Save contact", Padding = new Thickness(16, 9, 16, 9), HorizontalAlignment = HorizontalAlignment.Right, Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White, Margin = new Thickness(0, 16, 0, 0) };
+        save.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(ContactName) || string.IsNullOrWhiteSpace(CompanyName) || string.IsNullOrWhiteSpace(Phone)) { MessageBox.Show("Contact, company, and phone are required.", "CallBridge"); return; }
+            DialogResult = true;
+        };
+        stack.Children.Add(save); Content = stack;
+    }
+    private static void AddField(Panel panel, string label, Control field)
+    {
+        panel.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 6, 0, 5) });
+        panel.Children.Add(field);
     }
 }
 

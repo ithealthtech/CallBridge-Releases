@@ -319,6 +319,9 @@
                             <TextBlock x:Name="ListSubheading" Text="People and extensions" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
                         </StackPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="AddContactButton" Content="Add contact" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="EditContactButton" Content="Edit" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="DeleteContactButton" Content="Delete" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="ImportContactsButton" Content="Import CSV" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="ClearContactsButton" Content="Clear imports" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="RefreshRowsButton" Content="Refresh" Padding="14,8" Margin="0,0,12,0"/>
