@@ -1,5 +1,8 @@
 ﻿Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 
+$settingsPath=Join-Path $PSScriptRoot 'settings.json'
+$appSettings=if(Test-Path $settingsPath){Get-Content -Raw $settingsPath|ConvertFrom-Json}else{[pscustomobject]@{apiBase='http://127.0.0.1:8787';extension='201';displayName='IT Health Technologies';simulateCalls=$true}}
+
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="CallBridge Softphone" Width="1080" Height="720" MinWidth="920" MinHeight="620" WindowStartupLocation="CenterScreen" Background="#090E15" Foreground="#E9E7E2" FontFamily="Segoe UI">
   <Window.Resources>
@@ -14,7 +17,7 @@
       <StackPanel Orientation="Horizontal" Margin="4,8,4,28"><Border Width="38" Height="38" CornerRadius="11" BorderBrush="#1F78A8" BorderThickness="1" Background="#10293A"><TextBlock Name="LogoIcon" Text="CB" Foreground="#45C4B1" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><StackPanel Margin="11,1,0,0"><TextBlock Text="CALLBRIDGE" FontSize="12" FontWeight="Bold"/><TextBlock Text="IT HEALTH TECHNOLOGIES" Foreground="#6F7B88" FontSize="8" Margin="0,4,0,0"/></StackPanel></StackPanel>
       <Border Grid.Row="1" Background="#121B25" BorderBrush="#27313D" BorderThickness="1" CornerRadius="9" Padding="11" Margin="0,0,0,18"><StackPanel Orientation="Horizontal"><Ellipse Width="9" Height="9" Fill="#6FC29D" Margin="0,3,9,0"/><StackPanel><TextBlock Text="Available" Foreground="#A5D7C0" FontSize="11" FontWeight="SemiBold"/><TextBlock Text="Extension 201" Foreground="#667584" FontSize="9"/></StackPanel></StackPanel></Border>
       <StackPanel Grid.Row="2"><Button Name="NavDashboard" Style="{StaticResource Nav}" Content="Dashboard"/><Button Name="NavPhone" Style="{StaticResource Nav}" Content="Phone" Foreground="#EAF7FC" Background="#10283A" BorderBrush="#26A7DF" BorderThickness="2,0,0,0"/><Button Name="NavContacts" Style="{StaticResource Nav}" Content="Contacts"/><Button Name="NavHistory" Style="{StaticResource Nav}" Content="Call history"/><Button Name="NavMessages" Style="{StaticResource Nav}" Content="Messages"/><Button Name="NavVoicemail" Style="{StaticResource Nav}" Content="Voicemail"/><Button Name="NavIntegrations" Style="{StaticResource Nav}" Content="Connections"/><Button Name="NavSettings" Style="{StaticResource Nav}" Content="Settings"/></StackPanel>
-      <StackPanel Grid.Row="3" Margin="5,0,5,8"><TextBlock Text="PBX STATUS" Foreground="#626F7D" FontSize="8"/><StackPanel Orientation="Horizontal" Margin="0,9,0,0"><Ellipse Name="StatusDot" Width="8" Height="8" Fill="#F2B84B" Margin="0,3,8,0"/><TextBlock Name="RegistrationText" Text="Not registered" Foreground="#A6B5C3" FontSize="10"/></StackPanel><TextBlock Text="CallBridge v0.2.0" Foreground="#4E5965" FontSize="9" Margin="0,18,0,0"/></StackPanel>
+      <StackPanel Grid.Row="3" Margin="5,0,5,8"><TextBlock Text="CONNECTOR STATUS" Foreground="#626F7D" FontSize="8"/><StackPanel Orientation="Horizontal" Margin="0,9,0,0"><Ellipse Name="StatusDot" Width="8" Height="8" Fill="#F2B84B" Margin="0,3,8,0"/><TextBlock Name="RegistrationText" Text="Checking service" Foreground="#A6B5C3" FontSize="10"/></StackPanel><TextBlock Text="CallBridge v0.3.0" Foreground="#4E5965" FontSize="9" Margin="0,18,0,0"/></StackPanel>
     </Grid></Border>
     <Grid Grid.Column="1"><Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <Border BorderBrush="#202A35" BorderThickness="0,0,0,1" Background="#0B1119"><Grid Margin="28,0"><TextBlock Name="PageTitle" Text="Phone" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"><Button Name="TopMode" Content="Available  " Padding="12,7"/><Border Width="32" Height="32" CornerRadius="16" Background="#283340" Margin="12,0,0,0"><TextBlock Text="IT" FontSize="10" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></StackPanel></Grid></Border>
@@ -36,6 +39,8 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 function C($name) { $window.FindName($name) }
 $phonePage=C 'PhonePage'; $listPage=C 'ListPage'; $pageTitle=C 'PageTitle'; $heading=C 'ListHeading'; $subheading=C 'ListSubheading'; $content=C 'ListContent'; $number=C 'NumberBox'; $callButton=C 'CallButton'; $callStatus=C 'CallStatus'; $search=C 'SearchBox'
 $script:currentRows=@(); $script:callSeconds=0
+function Get-Api($path){try{return Invoke-RestMethod -Uri ($appSettings.apiBase.TrimEnd('/')+$path) -Method Get -TimeoutSec 2}catch{return $null}}
+function Refresh-Connection{$health=Get-Api '/health';$dot=C 'StatusDot';$label=C 'RegistrationText';if($health -and $health.ok){$dot.Fill='#39C292';$label.Text="Connector online v$($health.version)";$label.Foreground='#74D5AE'}else{$dot.Fill='#F2B84B';$label.Text='Connector offline';$label.Foreground='#A6B5C3'}}
 
 function Set-NavIcon($name,$glyph,$label){
   $button=C $name; $panel=New-Object Windows.Controls.StackPanel; $panel.Orientation='Horizontal'
@@ -61,11 +66,19 @@ function Render-Rows($rows){
 }
 function Show-List($title,$subtitle,$rows) {$script:currentRows=$rows;$phonePage.Visibility='Collapsed';$listPage.Visibility='Visible';$pageTitle.Text=$title;$heading.Text=$title;$subheading.Text=$subtitle;$search.Text='';Render-Rows $rows}
 function Show-Phone {$phonePage.Visibility='Visible';$listPage.Visibility='Collapsed';$pageTitle.Text='Phone'}
+function Show-Dashboard{
+  $diagnostics=Get-Api '/diagnostics';$health=Get-Api '/health'
+  if($diagnostics){$db=$diagnostics.database;Show-List 'Dashboard' 'Live CallBridge connector health and activity' @("Connector service|Online - version $($health.version)|Healthy","Captured calls|$($db.calls) total events - $($db.webhookCaptures) webhook captures|View","Directory|$($db.companies) companies - $($db.contacts) contacts - $($db.phones) phones|Open","Deliveries|$($db.pendingDeliveries) pending - $($db.acknowledgedDeliveries) acknowledged|Details","ASIO mode|$($diagnostics.config.asioMode) - $($diagnostics.config.host):$($diagnostics.config.port)|Configure")}
+  else{Show-List 'Dashboard' 'PBX health and communications overview' @('Connector service|Offline - start CallBridge Internal on port 8787|Retry','Captured calls|Demo data - live service unavailable|View','Directory|Demo contacts loaded|Open','SIP registration|Not configured|Configure')}
+}
+function Show-History{
+  $recent=Get-Api '/events/recent?limit=50';if($recent -and $recent.events){$rows=@($recent.events|ForEach-Object{"$($_.caller_number)|$($_.direction) - $($_.state) - $($_.occurred_at)|Call"});Show-List 'Call history' 'Live calls from the CallBridge event journal' $rows}else{Show-List 'Call history' 'Inbound, outbound, and missed calls' @('Simi Valley Dental Group|Inbound - Today 3:42 PM - 04:18|Call','West Coast Manufacturing|Missed - Today 2:16 PM - (818) 555-0192|Call','Northstar Property Management|Outbound - Today 11:08 AM - 12:06|Call')}
+}
 $search.Add_TextChanged({$q=$search.Text.ToLower();if([string]::IsNullOrWhiteSpace($q)){Render-Rows $script:currentRows}else{Render-Rows @($script:currentRows|Where-Object{$_.ToLower().Contains($q)} )}})
-(C 'NavDashboard').Add_Click({Show-List 'Dashboard' 'PBX health and communications overview' @('PBX registration|Not configured - add SIP credentials in Settings|Configure','Captured calls|9 calls today - 2 missed|View','Directory|4 contacts - 3 available|Open','Voicemail|1 new message - 00:42|Play','Connector service|127.0.0.1:8787 - API offline|Details')})
+(C 'NavDashboard').Add_Click({Show-Dashboard})
 (C 'NavPhone').Add_Click({Show-Phone})
 (C 'NavContacts').Add_Click({Show-List 'Contacts' 'Search people, extensions, and queues' @('Maria Jensen|Available - (805) 555-0147|Call','Daniel Kim|In a call - (818) 555-0192|Call','Front Office|Available - Extension 200|Call','Support Queue|2 agents available - Extension 600|Call')})
-(C 'NavHistory').Add_Click({Show-List 'Call history' 'Inbound, outbound, and missed calls' @('Simi Valley Dental Group|Inbound - Today 3:42 PM - 04:18|Call','West Coast Manufacturing|Missed - Today 2:16 PM - (818) 555-0192|Call','Northstar Property Management|Outbound - Today 11:08 AM - 12:06|Call','Unknown caller|Inbound - Yesterday 4:54 PM - 01:44|Call')})
+(C 'NavHistory').Add_Click({Show-History})
 (C 'NavMessages').Add_Click({Show-List 'Messages' 'Team conversations and SMS' @('Maria Jensen|Can you call me when available? - 2 min|Reply','Support Team|Queue coverage updated - 18 min|Open','Daniel Kim|Thank you for the quick help - 1 hr|Reply')})
 (C 'NavVoicemail').Add_Click({Show-List 'Voicemail' 'New and saved voice messages' @('New voicemail|(805) 555-0122 - Today 1:08 PM - 00:42|Play','Saved voicemail|Simi Valley Dental Group - Yesterday - 01:14|Play')})
 (C 'NavIntegrations').Add_Click({Show-List 'Connections' 'PBX services and account integrations' @('Hive PBX / ASIO|Disconnected - awaiting service API|Configure','SIP account|Not registered|Configure','Local connector|127.0.0.1:8787 - unavailable|Test','Contact directory|Last sync Jul 11, 5:07 PM|Sync')})
@@ -78,6 +91,7 @@ $callButton.Add_Click({
   if($callButton.Content -like '*END*'){$callStatus.Text='READY TO CALL';$callButton.Content='   CALL';$callButton.Background='#39C292';$number.IsReadOnly=$false}
   else{$callStatus.Text='CALLING  SIMULATED';$callButton.Content='   END CALL';$callButton.Background='#C95669';$number.IsReadOnly=$true}
 })
+Refresh-Connection
 $window.ShowDialog() | Out-Null
 
 
