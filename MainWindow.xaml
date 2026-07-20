@@ -319,6 +319,11 @@
                             <TextBlock x:Name="ListSubheading" Text="People and extensions" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
                         </StackPanel>
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button x:Name="SyncConnectWiseButton" Content="Sync ConnectWise" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="OpenCompanyButton" Content="Open company" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="CreateTicketButton" Content="New ticket" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="CallNoteButton" Content="Call notes" Padding="14,8" Margin="0,0,8,0"/>
+                            <Button x:Name="ExportHistoryButton" Content="Export CSV" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="AddContactButton" Content="Add contact" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="EditContactButton" Content="Edit" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="DeleteContactButton" Content="Delete" Padding="14,8" Margin="0,0,8,0"/>

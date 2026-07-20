@@ -1,54 +1,72 @@
-# CallBridge Softphone v0.9.0
+# CallBridge Softphone v0.10.0
 
-Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
+White-label Windows VoIP control center for IT Health Technologies with Standard SIP calling and ConnectWise support workflows.
 
 ## Run
 
-Double-click:
+Double-click `run-softphone.cmd`. The launcher:
 
-```text
-run-softphone.cmd
-```
+- closes an orphaned listener on `127.0.0.1:8787`;
+- starts CallBridge Internal v0.12 in the background;
+- waits for a successful health check;
+- starts one desktop-app instance; and
+- stops the backend and frees port 8787 when the app closes.
 
-The launcher starts the local CallBridge Internal v0.8 backend on `127.0.0.1:8787` when it is not already running, waits briefly for `/health`, then starts the desktop app.
+Requirements: Windows 10 or 11, Node.js 22.5 or newer, and the .NET 8 Desktop Runtime.
 
-If the `publish` folder is present, the launcher starts the compiled app. Otherwise it runs the project with the installed .NET 8 SDK.
+## ConnectWise setup
 
-## Included
+Open Settings. CallBridge supports the two distinct ConnectWise authentication models without mixing their credentials.
 
-- Axion-style white-label Windows app shell
-- Modern MSP-grade visual treatment with softer geometry, richer color, gradients, icon navigation, and structured list rows
-- Bundled IT HealthTech logo from the public `ithealthtech.com` site
-- Dialpad and active-call controls
-- Provider selector for mock, standard SIP test, and future Axion/Noixa integration
-- Functional settings window
-- Local settings persistence in `settings.json`
-- Connector API health check against `http://127.0.0.1:8787`
-- Call control wiring for the CallBridge Internal telephony endpoints
-- Contacts, call history, messages, voicemail, parking, recordings, and MSP action views
-- Double-click callable rows to load the dialer and start a call
-- Settings validation and API connection testing
-- Dashboard rows route to settings, health checks, or staged workflow notices
-- Auto-start launcher for CallBridge Internal v0.8 so `127.0.0.1:8787` is not cold by default
-- Contacts and call history use live backend endpoints only.
-- Import real contacts from CSV using `Company,Contact,Phone` columns. Imports are persisted by CallBridge Internal.
-- Add, edit, and delete individual contacts from the Contacts screen.
-- Outbound call lifecycle events are persisted and displayed in Call history.
-- Registration and call state now come from the connector API; failed operations never display as successful.
-- SIP passwords are protected with the signed-in Windows account and stored under Local AppData.
-- A single-instance guard prevents duplicate desktop processes.
-- The launcher replaces orphaned port 8787 listeners and releases the port when the app closes.
-- Demo caller/contact fallback data has been removed from phone views.
+### ConnectWise Platform OAuth
 
-## Provider status
+Use credentials generated in ConnectWise Platform under **Integrations > API Access > Generate Access**:
 
-The mock provider is usable now for app workflow testing.
+- regional Platform API URL (NA, EU, or AU);
+- OAuth Client ID;
+- OAuth Client Secret; and
+- scopes, initially `platform.companies.read platform.tickets.create`.
 
-The standard SIP test provider is ready for credentials from a SIP service that allows direct SIP registration. Axion/Noixa remains intentionally blocked until Axion supplies approved SBC/WebRTC or portal API integration details.
+Choose **Test Platform OAuth**. The secret and access-token cache are protected with Windows DPAPI. Tokens are reused until expiry, including across app restarts, to avoid HTTP 423. Platform requests honor the documented 500-request, 5-minute quota and pause on HTTP 429 until the `Reset` time.
 
-## Build
+### ConnectWise PSA API member
+
+Live PSA directory synchronization, company deep links, and service-ticket creation currently require:
+
+- PSA Site URL;
+- Company ID;
+- API-member Public Key;
+- API-member Private Key;
+- ConnectWise Client ID header; and
+- default Service Board ID.
+
+Choose **Test PSA**, then open Contacts and select **Sync ConnectWise**. Select a synchronized contact to open its company or create a service ticket.
+
+## Standard SIP setup
+
+Choose **Standard SIP**, then enter a SIP registrar/domain, extension username, and password. Register before dialing. Calls use the Windows default communications microphone and speaker and support hangup, mute, hold/resume, DTMF, and blind transfer.
+
+Axion/Noixa direct SIP remains unavailable because that service does not permit direct SIP dialing. Its provider entry stays blocked until approved SBC, WebRTC, or portal API details are supplied.
+
+## Included workflows
+
+- Live ConnectWise contact/company phone synchronization with no demo contacts
+- Contact search, add, edit, delete, and CSV import
+- Grouped call journal with duration, company/contact match, notes, outcome, and CSV export
+- ConnectWise company deep links and service-ticket creation
+- ConnectWise Platform OAuth validation, token caching, and rate-limit protection
+- Encrypted SIP, PSA private-key, and Platform client-secret storage under Local AppData
+- Connector health, operational dashboard, and live-only data views
+- Single-instance desktop guard and reliable port cleanup
+
+Messages, voicemail, call parking, and recordings remain provider-dependent and display no fabricated data when no provider is connected.
+
+## Build and verify
 
 ```powershell
 dotnet build .\CallBridge.Desktop.csproj -c Release
 dotnet publish .\CallBridge.Desktop.csproj -c Release -o .\publish
+dotnet run --project .\tests\CredentialSmokeTest.csproj -c Release
+dotnet run --project .\tests\ConnectWiseSmoke\ConnectWiseSmoke.csproj -c Release
+dotnet run --project .\tests\SipMediaSmoke\SipMediaSmoke.csproj -c Release
 ```

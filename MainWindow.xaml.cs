@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -14,7 +15,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.9.0";
+    private const string Version = "0.10.0";
     private readonly string _settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IT Health Technologies", "CallBridge", "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -24,6 +25,8 @@ public partial class MainWindow : Window
     private bool _held;
     private List<RowItem> _currentRows = [];
     private readonly DispatcherTimer _statusTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly SipSoftphone _sip = new();
+    private string? _sipCallId;
 
     public MainWindow()
     {
@@ -34,20 +37,35 @@ public partial class MainWindow : Window
         ApplyBranding();
         _ = RenderPhoneAsync();
         _ = RefreshHealthAsync();
-        _statusTimer.Tick += async (_, _) => await RefreshOperationalStatusAsync();
+        _statusTimer.Tick += (_, _) => RefreshOperationalStatus();
         _statusTimer.Start();
-        Closed += (_, _) => { _statusTimer.Stop(); _http.Dispose(); };
+        _sip.RegistrationStateChanged += state => Dispatcher.Invoke(() =>
+        {
+            _registered = state == "registered";
+            RegistrationMetric.Text = state;
+            UpdateProviderStatus();
+        });
+        _sip.CallStateChanged += state => Dispatcher.Invoke(() =>
+        {
+            CallStateText.Text = state.ToUpperInvariant();
+            if (state == "ended" && _activeCallId is not null)
+            {
+                _ = LogSipEventAsync("hangup");
+                EndLocalCall("READY");
+            }
+        });
+        Closed += (_, _) => { _statusTimer.Stop(); _http.Dispose(); _ = _sip.DisposeAsync(); };
     }
 
     private void WireEvents()
     {
-        ProviderBox.Items.Add("Mock provider");
-        ProviderBox.Items.Add("Standard SIP test");
+        ProviderBox.Items.Add("Standard SIP");
         ProviderBox.Items.Add("Axion / Noixa pending");
         ProviderBox.SelectedItem = _settings.Provider;
-        ProviderBox.SelectionChanged += (_, _) =>
+        ProviderBox.SelectionChanged += async (_, _) =>
         {
-            _settings.Provider = ProviderBox.SelectedItem?.ToString() ?? "Mock provider";
+            _settings.Provider = ProviderBox.SelectedItem?.ToString() ?? "Standard SIP";
+            if (_settings.Provider != "Standard SIP" && _sip.IsRegistered) await _sip.UnregisterAsync();
             SaveSettings(false);
             UpdateProviderStatus();
         };
@@ -60,6 +78,11 @@ public partial class MainWindow : Window
         DtmfButton.Click += async (_, _) => await SendDtmfAsync();
         SearchBox.TextChanged += (_, _) => RenderRows(FilterRows(SearchBox.Text));
         ImportContactsButton.Click += async (_, _) => await ImportContactsAsync();
+        SyncConnectWiseButton.Click += async (_, _) => await SyncConnectWiseAsync();
+        OpenCompanyButton.Click += (_, _) => OpenSelectedCompany();
+        CreateTicketButton.Click += async (_, _) => await CreateTicketForSelectedContactAsync();
+        CallNoteButton.Click += async (_, _) => await EditSelectedCallNoteAsync();
+        ExportHistoryButton.Click += async (_, _) => await ExportCallHistoryAsync();
         AddContactButton.Click += async (_, _) => await AddContactAsync();
         EditContactButton.Click += async (_, _) => await EditSelectedContactAsync();
         DeleteContactButton.Click += async (_, _) => await DeleteSelectedContactAsync();
@@ -76,7 +99,7 @@ public partial class MainWindow : Window
         VoicemailButton.Click += (_, _) => ShowRows("Voicemail", "New and saved voice messages", VoicemailRows());
         ParkingButton.Click += (_, _) => ShowRows("Parking", "Parked calls and pickup slots", ParkingRows());
         RecordingsButton.Click += (_, _) => ShowRows("Recordings", "Call recordings and review queue", RecordingRows());
-        MspButton.Click += (_, _) => ShowRows("MSP actions", "Support workflows tied to phone activity", MspRows());
+        MspButton.Click += async (_, _) => ShowRows("MSP actions", "Live ConnectWise support workflows", await MspRowsAsync());
         SettingsButton.Click += (_, _) => ShowSettings();
 
         foreach (Button button in DialPad.Children.OfType<Button>())
@@ -85,6 +108,7 @@ public partial class MainWindow : Window
             {
                 var digit = button.Content.ToString()![0].ToString();
                 if (_activeCallId is null) DialText.Text += digit;
+                else if (_settings.Provider == "Standard SIP") await _sip.SendDtmfAsync(digit);
                 else await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = digit });
             };
         }
@@ -122,6 +146,9 @@ public partial class MainWindow : Window
             ShowRows("Dashboard", "Connector health, registration, and operational status", await DashboardRowsAsync());
             return;
         }
+
+        if (row.Action.Equals("Configure", StringComparison.OrdinalIgnoreCase)) { ShowSettings(); return; }
+        if (row.Action.Equals("Sync", StringComparison.OrdinalIgnoreCase)) { await SyncConnectWiseAsync(); return; }
 
         MessageBox.Show($"{row.Title}\n\n{row.Detail}\n\nThis workflow is staged in the UI and ready for backend integration.", "CallBridge");
     }
@@ -183,11 +210,21 @@ public partial class MainWindow : Window
             {
                 var json = File.ReadAllText(sourcePath);
                 _settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions()) ?? new AppSettings();
+                if (_settings.Provider is "Mock provider" or "Standard SIP test") _settings.Provider = "Standard SIP";
                 if (!string.IsNullOrWhiteSpace(_settings.SipPasswordProtected)) _settings.SipPassword = CredentialProtector.Unprotect(_settings.SipPasswordProtected);
                 else
                 {
                     using var legacy = JsonDocument.Parse(json);
                     if (legacy.RootElement.TryGetProperty("sipPassword", out var oldPassword)) _settings.SipPassword = oldPassword.GetString() ?? "";
+                }
+                if (!string.IsNullOrWhiteSpace(_settings.ConnectWisePrivateKeyProtected)) _settings.ConnectWisePrivateKey = CredentialProtector.Unprotect(_settings.ConnectWisePrivateKeyProtected);
+                if (!string.IsNullOrWhiteSpace(_settings.ConnectWisePlatformClientSecretProtected)) _settings.ConnectWisePlatformClientSecret = CredentialProtector.Unprotect(_settings.ConnectWisePlatformClientSecretProtected);
+                if (!string.IsNullOrWhiteSpace(_settings.ConnectWisePlatformAccessTokenProtected)) _settings.ConnectWisePlatformAccessToken = CredentialProtector.Unprotect(_settings.ConnectWisePlatformAccessTokenProtected);
+                if (_settings.ConnectWisePlatformAccessTokenExpiresAt <= DateTimeOffset.UtcNow)
+                {
+                    _settings.ConnectWisePlatformAccessToken = "";
+                    _settings.ConnectWisePlatformAccessTokenProtected = "";
+                    _settings.ConnectWisePlatformAccessTokenExpiresAt = null;
                 }
                 SaveSettings(false);
             }
@@ -208,6 +245,9 @@ public partial class MainWindow : Window
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_settingsPath)!);
         _settings.SipPasswordProtected = string.IsNullOrWhiteSpace(_settings.SipPassword) ? "" : CredentialProtector.Protect(_settings.SipPassword);
+        _settings.ConnectWisePrivateKeyProtected = string.IsNullOrWhiteSpace(_settings.ConnectWisePrivateKey) ? "" : CredentialProtector.Protect(_settings.ConnectWisePrivateKey);
+        _settings.ConnectWisePlatformClientSecretProtected = string.IsNullOrWhiteSpace(_settings.ConnectWisePlatformClientSecret) ? "" : CredentialProtector.Protect(_settings.ConnectWisePlatformClientSecret);
+        _settings.ConnectWisePlatformAccessTokenProtected = string.IsNullOrWhiteSpace(_settings.ConnectWisePlatformAccessToken) ? "" : CredentialProtector.Protect(_settings.ConnectWisePlatformAccessToken);
         File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, JsonOptions()));
         if (apply) ApplyBranding();
     }
@@ -248,6 +288,11 @@ public partial class MainWindow : Window
         AddContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
         EditContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
         DeleteContactButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        SyncConnectWiseButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        OpenCompanyButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        CreateTicketButton.Visibility = title == "Contacts" ? Visibility.Visible : Visibility.Collapsed;
+        CallNoteButton.Visibility = title == "Call history" ? Visibility.Visible : Visibility.Collapsed;
+        ExportHistoryButton.Visibility = title == "Call history" ? Visibility.Visible : Visibility.Collapsed;
         RenderRows(rows);
     }
 
@@ -342,6 +387,58 @@ public partial class MainWindow : Window
         catch (Exception ex) { MessageBox.Show($"Import failed: {ex.Message}", "CallBridge"); }
     }
 
+    private async Task SyncConnectWiseAsync()
+    {
+        if (!ConnectWiseClient.IsConfigured(_settings))
+        {
+            MessageBox.Show("Configure ConnectWise Site, Company ID, API keys, and Client ID in Settings first.", "CallBridge");
+            ShowSettings(); return;
+        }
+        try
+        {
+            SyncConnectWiseButton.IsEnabled = false;
+            var progress = new Progress<string>(message => ListSubheading.Text = message);
+            using var client = new ConnectWiseClient(_settings);
+            var test = await client.TestAsync();
+            if (!test.Success) throw new HttpRequestException(test.Message);
+            var contacts = await client.DownloadContactsAsync(progress);
+            var records = contacts.Select(contact => new { companyId = contact.CompanyId, companyName = contact.CompanyName, contactId = contact.ContactId, contactName = contact.ContactName, phones = contact.Phones }).ToList();
+            var json = JsonSerializer.Serialize(new { records }, JsonOptions());
+            using var request = new HttpRequestMessage(HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}/integrations/connectwise/directory") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            using var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Contacts", "Live ConnectWise PSA directory", await ContactRowsAsync());
+            MessageBox.Show($"Synchronized {contacts.Count} ConnectWise contacts with callable phone records.", "CallBridge");
+        }
+        catch (Exception ex) { MessageBox.Show($"ConnectWise sync failed: {ex.Message}", "CallBridge"); }
+        finally { SyncConnectWiseButton.IsEnabled = true; }
+    }
+
+    private void OpenSelectedCompany()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CompanyId)) { MessageBox.Show("Select a synchronized ConnectWise contact first.", "CallBridge"); return; }
+        if (!ConnectWiseClient.IsConfigured(_settings)) { MessageBox.Show("Configure ConnectWise in Settings first.", "CallBridge"); return; }
+        try { using var client = new ConnectWiseClient(_settings); Process.Start(new ProcessStartInfo(client.CompanyUrl(row.CompanyId)) { UseShellExecute = true }); }
+        catch (Exception ex) { MessageBox.Show($"Could not open company: {ex.Message}", "CallBridge"); }
+    }
+
+    private async Task CreateTicketForSelectedContactAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CompanyId)) { MessageBox.Show("Select a synchronized ConnectWise contact first.", "CallBridge"); return; }
+        if (!ConnectWiseClient.IsConfigured(_settings) || _settings.ConnectWiseBoardId <= 0) { MessageBox.Show("Configure ConnectWise and a default service board ID in Settings first.", "CallBridge"); return; }
+        var editor = new TicketWindow(row.Company, row.Title, row.Destination) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+        try
+        {
+            using var client = new ConnectWiseClient(_settings);
+            var ticket = await client.CreateTicketAsync(row.CompanyId, _settings.ConnectWiseBoardId, editor.Summary, editor.Description);
+            var ticketId = Value(ticket, "id");
+            MessageBox.Show($"ConnectWise ticket {ticketId} was created successfully.", "CallBridge");
+            if (!string.IsNullOrWhiteSpace(ticketId)) Process.Start(new ProcessStartInfo(client.TicketUrl(ticketId)) { UseShellExecute = true });
+        }
+        catch (Exception ex) { MessageBox.Show($"Ticket creation failed: {ex.Message}", "CallBridge"); }
+    }
+
     private async Task ClearImportedContactsAsync()
     {
         if (MessageBox.Show("Remove all contacts previously loaded by CSV import?", "CallBridge", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
@@ -409,34 +506,46 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_settings.Provider == "Standard SIP test")
+        if (_settings.Provider == "Standard SIP")
         {
-            MessageBox.Show("The installed backend does not include a real SIP media driver. Standard SIP registration is unavailable until a supported driver is installed; CallBridge will not report a simulated registration.", "CallBridge");
+            if (_sip.IsRegistered)
+            {
+                await _sip.UnregisterAsync();
+                _registered = false;
+                UpdateProviderStatus();
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(_settings.SipServer) || string.IsNullOrWhiteSpace(_settings.SipUsername) || string.IsNullOrWhiteSpace(_settings.SipPassword))
+            {
+                MessageBox.Show("Add the SIP server, SBC extension username, and password in Settings first.", "CallBridge");
+                return;
+            }
+            RegistrationMetric.Text = "Registering...";
+            var sipResult = await _sip.RegisterAsync(_settings.SipServer, _settings.SipUsername, _settings.SipPassword);
+            _registered = sipResult.Success;
+            UpdateProviderStatus();
+            if (!sipResult.Success) ShowApiError(sipResult.Message);
             return;
         }
-        var result = await PostTelephonyAsync(_registered ? "/telephony/unregister" : "/telephony/register", new { extension = _settings.Extension });
-        if (!result.Success) { ShowApiError(result.Message); return; }
-        await RefreshOperationalStatusAsync();
+        MessageBox.Show("Select Standard SIP and add registrar credentials before registering.", "CallBridge");
     }
 
-    private async Task RefreshOperationalStatusAsync()
+    private void RefreshOperationalStatus()
     {
-        try
+        if (_settings.Provider == "Standard SIP")
         {
-            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/telephony/status");
-            if (!response.IsSuccessStatusCode) throw new HttpRequestException();
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            if (doc.RootElement.TryGetProperty("registration", out var registration))
-                _registered = Value(registration, "state").Equals("registered", StringComparison.OrdinalIgnoreCase);
-            if (_settings.Provider != "Mock provider") _registered = false;
+            _registered = _sip.IsRegistered;
             UpdateProviderStatus();
+            return;
         }
-        catch
+        if (_settings.Provider == "Axion / Noixa pending")
         {
             _registered = false;
-            RegistrationMetric.Text = "Unavailable";
-            RegisterButton.Content = "Register";
+            UpdateProviderStatus();
+            return;
         }
+        _registered = false;
+        UpdateProviderStatus();
     }
 
     private void UpdateProviderStatus()
@@ -452,6 +561,13 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is not null)
         {
+            if (_settings.Provider == "Standard SIP")
+            {
+                await _sip.HangupAsync();
+                await LogSipEventAsync("hangup");
+                EndLocalCall("READY");
+                return;
+            }
             var hangup = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/hangup", new { });
             if (!hangup.Success) { ShowApiError(hangup.Message); return; }
             EndLocalCall("READY");
@@ -459,25 +575,42 @@ public partial class MainWindow : Window
         }
 
         if (string.IsNullOrWhiteSpace(DialText.Text)) return;
-        if (!_registered && _settings.Provider != "Mock provider")
+        if (!_registered)
         {
             MessageBox.Show("Register the selected provider before starting a call.", "CallBridge");
             return;
         }
 
-        var apiCall = await PostTelephonyAsync("/telephony/calls", new { destination = DialText.Text, callerId = _settings.Extension });
-        if (!apiCall.Success || string.IsNullOrWhiteSpace(apiCall.CallId)) { ShowApiError(apiCall.Message); return; }
-        _activeCallId = apiCall.CallId;
-        CallStateText.Text = _settings.Provider == "Mock provider" ? "CONNECTED - LOCAL MOCK" : "CALL STARTED";
-        ActiveCallMetric.Text = DialText.Text;
-        CallButton.Content = "End call";
-        CallButton.Background = Brush("#C95669");
-        Topmost = _settings.AlwaysOnTopDuringCalls;
+        if (_settings.Provider == "Standard SIP")
+        {
+            _sipCallId = Guid.NewGuid().ToString("N");
+            _activeCallId = _sipCallId;
+            ActiveCallMetric.Text = DialText.Text;
+            CallButton.Content = "End call";
+            CallButton.Background = Brush("#C95669");
+            CallStateText.Text = "DIALING";
+            Topmost = _settings.AlwaysOnTopDuringCalls;
+            await LogSipEventAsync("started");
+            var result = await _sip.DialAsync(DialText.Text);
+            if (!result.Success)
+            {
+                await LogSipEventAsync("failed");
+                EndLocalCall("CALL FAILED");
+                ShowApiError(result.Message);
+                return;
+            }
+            CallStateText.Text = "CONNECTED - STANDARD SIP";
+            await LogSipEventAsync("connected");
+            return;
+        }
+
+        MessageBox.Show("The selected provider cannot place calls until its approved integration is configured.", "CallBridge");
     }
 
     private void EndLocalCall(string state)
     {
         _activeCallId = null;
+        _sipCallId = null;
         _muted = false;
         _held = false;
         Topmost = false;
@@ -493,6 +626,12 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is null) return;
         var requested = !_muted;
+        if (_settings.Provider == "Standard SIP")
+        {
+            try { await _sip.SetMutedAsync(requested); _muted = requested; MuteButton.Content = _muted ? "Unmute" : "Mute"; }
+            catch (Exception ex) { ShowApiError(ex.Message); }
+            return;
+        }
         var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/mute", new { muted = requested });
         if (!result.Success) { ShowApiError(result.Message); return; }
         _muted = requested;
@@ -503,6 +642,17 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is null) return;
         var requested = !_held;
+        if (_settings.Provider == "Standard SIP")
+        {
+            try
+            {
+                await _sip.SetHoldAsync(requested); _held = requested;
+                HoldButton.Content = _held ? "Resume" : "Hold"; CallStateText.Text = _held ? "CALL ON HOLD" : "CONNECTED";
+                await LogSipEventAsync(_held ? "hold" : "resume");
+            }
+            catch (Exception ex) { ShowApiError(ex.Message); }
+            return;
+        }
         var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/{(requested ? "hold" : "resume")}", new { });
         if (!result.Success) { ShowApiError(result.Message); return; }
         _held = requested;
@@ -516,6 +666,14 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Transfer call", "Destination extension or phone number");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
+            if (_settings.Provider == "Standard SIP")
+            {
+                var sipResult = await _sip.TransferAsync(prompt.Value);
+                if (!sipResult.Success) { ShowApiError(sipResult.Message); return; }
+                await LogSipEventAsync("transfer");
+                EndLocalCall($"TRANSFERRED TO {prompt.Value}");
+                return;
+            }
             var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/transfer", new { destination = prompt.Value });
             if (!result.Success) { ShowApiError(result.Message); return; }
             EndLocalCall($"TRANSFERRED TO {prompt.Value}");
@@ -528,6 +686,11 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Send DTMF", "Digits");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
+            if (_settings.Provider == "Standard SIP")
+            {
+                try { await _sip.SendDtmfAsync(prompt.Value); } catch (Exception ex) { ShowApiError(ex.Message); }
+                return;
+            }
             var result = await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = prompt.Value });
             if (!result.Success) ShowApiError(result.Message);
         }
@@ -558,21 +721,39 @@ public partial class MainWindow : Window
 
     private static void ShowApiError(string message) => MessageBox.Show(message, "CallBridge", MessageBoxButton.OK, MessageBoxImage.Warning);
 
+    private async Task LogSipEventAsync(string state)
+    {
+        if (string.IsNullOrWhiteSpace(_sipCallId)) return;
+        try
+        {
+            var payload = new { callId = _sipCallId, direction = "outbound", state, callerNumber = _settings.CallerId, calledNumber = DialText.Text, extension = _settings.Extension, occurredAt = DateTime.UtcNow.ToString("O") };
+            var json = JsonSerializer.Serialize(payload, JsonOptions());
+            using var response = await _http.PostAsync($"{_settings.ApiBase.TrimEnd('/')}/calls/events", new StringContent(json, Encoding.UTF8, "application/json"));
+        }
+        catch { }
+    }
+
     private async Task<List<RowItem>> HistoryRowsAsync()
     {
         try
         {
-            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/events/recent?limit=30");
+            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/calls/journal?limit=100");
             if (!response.IsSuccessStatusCode) throw new HttpRequestException();
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            if (doc.RootElement.TryGetProperty("events", out var events))
+            if (doc.RootElement.TryGetProperty("calls", out var calls))
             {
-                var rows = events.EnumerateArray().Select(e =>
+                var rows = calls.EnumerateArray().Select(call =>
                 {
-                    var direction = Value(e, "direction");
-                    var number = direction.Equals("outbound", StringComparison.OrdinalIgnoreCase) ? Value(e, "called_number") : Value(e, "caller_number");
-                    return new RowItem(string.IsNullOrWhiteSpace(number) ? "Unknown number" : number,
-                        $"{direction} - {Value(e, "state")} - {Value(e, "occurred_at")}", "Call", number);
+                    var direction = Value(call, "direction");
+                    var number = direction.Equals("outbound", StringComparison.OrdinalIgnoreCase) ? Value(call, "calledNumber") : Value(call, "callerNumber");
+                    var duration = int.TryParse(Value(call, "durationSeconds"), out var seconds) ? TimeSpan.FromSeconds(seconds).ToString(@"mm\:ss") : "00:00";
+                    var company = Value(call, "companyName");
+                    var notes = Value(call, "notes");
+                    var outcome = Value(call, "outcome");
+                    var detail = $"{direction} · {Value(call, "state")} · {duration} · {Value(call, "startedAt")}";
+                    if (!string.IsNullOrWhiteSpace(company)) detail += $" · {company}";
+                    if (!string.IsNullOrWhiteSpace(outcome)) detail += $" · {outcome}";
+                    return new RowItem(string.IsNullOrWhiteSpace(number) ? "Unknown number" : number, detail, "Call", number, Company: company, CompanyId: Value(call, "companyId"), CallId: Value(call, "callId"), Notes: notes, Outcome: outcome);
                 }).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("No live call history is available yet. Calls and webhook events will appear here after real traffic is received.");
             }
@@ -580,6 +761,34 @@ public partial class MainWindow : Window
         catch { }
         return EmptyRows("Call history endpoint is unavailable. Start CallBridge Internal and check Settings > Test API.");
     }
+
+    private async Task EditSelectedCallNoteAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CallId)) { MessageBox.Show("Select a call first.", "CallBridge"); return; }
+        var editor = new CallNoteWindow(row.Title, row.Notes, row.Outcome) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+        try
+        {
+            var json = JsonSerializer.Serialize(new { notes = editor.Notes, outcome = editor.Outcome }, JsonOptions());
+            using var request = new HttpRequestMessage(HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}/calls/{Uri.EscapeDataString(row.CallId)}/notes") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+            using var response = await _http.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
+            ShowRows("Call history", "Inbound, outbound, and missed calls", await HistoryRowsAsync());
+        }
+        catch (Exception ex) { MessageBox.Show($"Could not save call notes: {ex.Message}", "CallBridge"); }
+    }
+
+    private async Task ExportCallHistoryAsync()
+    {
+        var rows = await HistoryRowsAsync();
+        var picker = new SaveFileDialog { Filter = "CSV files (*.csv)|*.csv", FileName = $"CallBridge-call-history-{DateTime.Now:yyyy-MM-dd}.csv", Title = "Export call history" };
+        if (picker.ShowDialog(this) != true) return;
+        var csv = new StringBuilder("Number,Details,Company,Outcome,Notes\r\n");
+        foreach (var row in rows.Where(r => !string.IsNullOrWhiteSpace(r.CallId))) csv.AppendLine(string.Join(',', Csv(row.Title), Csv(row.Detail), Csv(row.Company), Csv(row.Outcome), Csv(row.Notes)));
+        await File.WriteAllTextAsync(picker.FileName, csv.ToString(), Encoding.UTF8);
+    }
+
+    private static string Csv(string value) => $"\"{value.Replace("\"", "\"\"").Replace("\r", " ").Replace("\n", " ")}\"";
 
     private static string Value(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) ? value.ToString() : "";
@@ -602,7 +811,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/directory");
+            using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/directory?limit=5000");
             if (!response.IsSuccessStatusCode) throw new HttpRequestException();
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             if (doc.RootElement.TryGetProperty("records", out var records))
@@ -613,8 +822,9 @@ public partial class MainWindow : Window
                     var contact = Value(record, "contactName");
                     var phone = Value(record, "phone");
                     var contactId = Value(record, "contactId");
+                    var companyId = Value(record, "companyId");
                     var title = string.IsNullOrWhiteSpace(contact) ? company : contact;
-                    return new RowItem(title, $"{phone} - {company}", "Call", phone, contactId, company);
+                    return new RowItem(title, $"{phone} - {company}", "Call", phone, contactId, company, companyId);
                 }).Where(r => !string.IsNullOrWhiteSpace(r.Title) && !string.IsNullOrWhiteSpace(r.Detail)).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("No live directory records are available yet. Connect a real directory sync source to populate contacts.");
             }
@@ -648,13 +858,18 @@ public partial class MainWindow : Window
         new("No live recordings", "Recording provider integration is not connected yet.", "Open")
     ];
 
-    private static List<RowItem> MspRows() =>
-    [
-        new("Create ConnectWise ticket", "Use caller, company, call notes, and selected agreement", "Start"),
-        new("Log activity", "Attach call outcome to matched company/contact", "Log"),
-        new("Open company", "Search mapped ConnectWise company and contacts", "Open"),
-        new("Remote support handoff", "Start support workflow from active call context", "Start")
-    ];
+    private async Task<List<RowItem>> MspRowsAsync()
+    {
+        var contacts = await ContactRowsAsync();
+        var liveCount = contacts.Count(r => r.Action == "Call");
+        return
+        [
+            new("ConnectWise Platform OAuth", ConnectWisePlatformClient.IsConfigured(_settings) ? "Configured - use Test Platform OAuth in Settings to validate" : "Not configured", "Configure"),
+            new("ConnectWise PSA", ConnectWiseClient.IsConfigured(_settings) ? "Configured - use Test ConnectWise in Settings to validate" : "Not configured", "Configure"),
+            new("Directory synchronization", $"{liveCount} callable contacts currently indexed", "Sync"),
+            new("Company and ticket actions", "Select a ConnectWise contact, then use Open company or New ticket", "Open")
+        ];
+    }
 
     private void ShowSettings()
     {
@@ -671,7 +886,7 @@ public partial class MainWindow : Window
         (SolidColorBrush)new BrushConverter().ConvertFromString(hex)!;
 }
 
-public sealed record RowItem(string Title, string Detail, string Action, string Destination = "", string ContactId = "", string Company = "")
+public sealed record RowItem(string Title, string Detail, string Action, string Destination = "", string ContactId = "", string Company = "", string CompanyId = "", string CallId = "", string Notes = "", string Outcome = "")
 {
     public override string ToString() => $"{Title}\n{Detail}    {Action}";
 }
@@ -714,19 +929,37 @@ public sealed class AppSettings
     public string ApiBase { get; set; } = "http://127.0.0.1:8787";
     public string Extension { get; set; } = "201";
     public string CallerId { get; set; } = "201";
-    public string Provider { get; set; } = "Mock provider";
+    public string Provider { get; set; } = "Standard SIP";
     public string SipServer { get; set; } = "";
     public string SipUsername { get; set; } = "";
     [JsonIgnore]
     public string SipPassword { get; set; } = "";
     public string SipPasswordProtected { get; set; } = "";
-    public string SipTransport { get; set; } = "TLS";
+    public string SipTransport { get; set; } = "UDP";
     public string Microphone { get; set; } = "Windows default communications device";
     public string Speaker { get; set; } = "Windows default communications device";
     public bool LaunchAtStartup { get; set; }
     public bool AlwaysOnTopDuringCalls { get; set; } = true;
     public string ProductName { get; set; } = "CallBridge";
     public string CompanyName { get; set; } = "IT Health Technologies";
+    public string ConnectWiseSite { get; set; } = "";
+    public string ConnectWiseCompanyId { get; set; } = "";
+    public string ConnectWisePublicKey { get; set; } = "";
+    [JsonIgnore]
+    public string ConnectWisePrivateKey { get; set; } = "";
+    public string ConnectWisePrivateKeyProtected { get; set; } = "";
+    public string ConnectWiseClientId { get; set; } = "";
+    public int ConnectWiseBoardId { get; set; }
+    public string ConnectWisePlatformBaseUrl { get; set; } = ConnectWisePlatformClient.NorthAmericaBaseUrl;
+    public string ConnectWisePlatformClientId { get; set; } = "";
+    [JsonIgnore]
+    public string ConnectWisePlatformClientSecret { get; set; } = "";
+    public string ConnectWisePlatformClientSecretProtected { get; set; } = "";
+    public string ConnectWisePlatformScopes { get; set; } = "platform.companies.read platform.tickets.create";
+    [JsonIgnore]
+    public string ConnectWisePlatformAccessToken { get; set; } = "";
+    public string ConnectWisePlatformAccessTokenProtected { get; set; } = "";
+    public DateTimeOffset? ConnectWisePlatformAccessTokenExpiresAt { get; set; }
 }
 
 public sealed class SettingsWindow : Window
@@ -742,6 +975,16 @@ public sealed class SettingsWindow : Window
     private readonly PasswordBox _sipPassword = new() { Padding = new Thickness(8) };
     private readonly ComboBox _transport = new();
     private readonly ComboBox _provider = new();
+    private readonly TextBox _cwSite = Field();
+    private readonly TextBox _cwCompany = Field();
+    private readonly TextBox _cwPublic = Field();
+    private readonly PasswordBox _cwPrivate = new() { Padding = new Thickness(8) };
+    private readonly TextBox _cwClientId = Field();
+    private readonly TextBox _cwBoardId = Field();
+    private readonly ComboBox _cwPlatformBase = new() { IsEditable = true };
+    private readonly TextBox _cwPlatformClientId = Field();
+    private readonly PasswordBox _cwPlatformClientSecret = new() { Padding = new Thickness(8) };
+    private readonly TextBox _cwPlatformScopes = Field();
     private readonly CheckBox _startup = new() { Content = "Launch when I sign in to Windows" };
     private readonly CheckBox _topmost = new() { Content = "Keep on top during calls" };
     public AppSettings Settings { get; private set; }
@@ -764,12 +1007,27 @@ public sealed class SettingsWindow : Window
             LaunchAtStartup = settings.LaunchAtStartup,
             AlwaysOnTopDuringCalls = settings.AlwaysOnTopDuringCalls,
             ProductName = settings.ProductName,
-            CompanyName = settings.CompanyName
+            CompanyName = settings.CompanyName,
+            ConnectWiseSite = settings.ConnectWiseSite,
+            ConnectWiseCompanyId = settings.ConnectWiseCompanyId,
+            ConnectWisePublicKey = settings.ConnectWisePublicKey,
+            ConnectWisePrivateKey = settings.ConnectWisePrivateKey,
+            ConnectWisePrivateKeyProtected = settings.ConnectWisePrivateKeyProtected,
+            ConnectWiseClientId = settings.ConnectWiseClientId,
+            ConnectWiseBoardId = settings.ConnectWiseBoardId,
+            ConnectWisePlatformBaseUrl = settings.ConnectWisePlatformBaseUrl,
+            ConnectWisePlatformClientId = settings.ConnectWisePlatformClientId,
+            ConnectWisePlatformClientSecret = settings.ConnectWisePlatformClientSecret,
+            ConnectWisePlatformClientSecretProtected = settings.ConnectWisePlatformClientSecretProtected,
+            ConnectWisePlatformScopes = settings.ConnectWisePlatformScopes,
+            ConnectWisePlatformAccessToken = settings.ConnectWisePlatformAccessToken,
+            ConnectWisePlatformAccessTokenProtected = settings.ConnectWisePlatformAccessTokenProtected,
+            ConnectWisePlatformAccessTokenExpiresAt = settings.ConnectWisePlatformAccessTokenExpiresAt
         };
 
         Title = "Settings";
         Width = 620;
-        Height = 620;
+        Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.FromRgb(246, 248, 251));
 
@@ -781,10 +1039,21 @@ public sealed class SettingsWindow : Window
         _sipServer.Text = Settings.SipServer;
         _sipUser.Text = Settings.SipUsername;
         _sipPassword.Password = Settings.SipPassword;
-        foreach (var item in new[] { "Mock provider", "Standard SIP test", "Axion / Noixa pending" }) _provider.Items.Add(item);
+        _cwSite.Text = Settings.ConnectWiseSite;
+        _cwCompany.Text = Settings.ConnectWiseCompanyId;
+        _cwPublic.Text = Settings.ConnectWisePublicKey;
+        _cwPrivate.Password = Settings.ConnectWisePrivateKey;
+        _cwClientId.Text = Settings.ConnectWiseClientId;
+        _cwBoardId.Text = Settings.ConnectWiseBoardId == 0 ? "" : Settings.ConnectWiseBoardId.ToString();
+        foreach (var item in new[] { ConnectWisePlatformClient.NorthAmericaBaseUrl, ConnectWisePlatformClient.EuropeBaseUrl, ConnectWisePlatformClient.AustraliaBaseUrl }) _cwPlatformBase.Items.Add(item);
+        _cwPlatformBase.Text = Settings.ConnectWisePlatformBaseUrl;
+        _cwPlatformClientId.Text = Settings.ConnectWisePlatformClientId;
+        _cwPlatformClientSecret.Password = Settings.ConnectWisePlatformClientSecret;
+        _cwPlatformScopes.Text = Settings.ConnectWisePlatformScopes;
+        foreach (var item in new[] { "Standard SIP", "Axion / Noixa pending" }) _provider.Items.Add(item);
         _provider.SelectedItem = Settings.Provider;
-        foreach (var item in new[] { "TLS", "TCP", "UDP" }) _transport.Items.Add(item);
-        _transport.SelectedItem = Settings.SipTransport;
+        _transport.Items.Add("UDP");
+        _transport.SelectedItem = "UDP";
         _startup.IsChecked = Settings.LaunchAtStartup;
         _topmost.IsChecked = Settings.AlwaysOnTopDuringCalls;
 
@@ -805,6 +1074,18 @@ public sealed class SettingsWindow : Window
         Add(stack, "SIP username", _sipUser);
         Add(stack, "SIP password", _sipPassword);
         Add(stack, "SIP transport", _transport);
+        stack.Children.Add(Label("ConnectWise Platform OAuth (Developer Access)"));
+        Add(stack, "Platform API URL / region", _cwPlatformBase);
+        Add(stack, "OAuth Client ID", _cwPlatformClientId);
+        Add(stack, "OAuth Client Secret", _cwPlatformClientSecret);
+        Add(stack, "Scopes", _cwPlatformScopes);
+        stack.Children.Add(Label("ConnectWise PSA API Member"));
+        Add(stack, "Site URL (for example https://na.myconnectwise.net)", _cwSite);
+        Add(stack, "Company ID", _cwCompany);
+        Add(stack, "Public key", _cwPublic);
+        Add(stack, "Private key", _cwPrivate);
+        Add(stack, "Client ID", _cwClientId);
+        Add(stack, "Default service board ID", _cwBoardId);
         stack.Children.Add(Label("White label"));
         Add(stack, "Product name", _product);
         Add(stack, "Company name", _company);
@@ -813,8 +1094,12 @@ public sealed class SettingsWindow : Window
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 0) };
         var test = new Button { Content = "Test API", Padding = new Thickness(14), Margin = new Thickness(0, 0, 10, 0) };
+        var testPlatform = new Button { Content = "Test Platform OAuth", Padding = new Thickness(14), Margin = new Thickness(0, 0, 10, 0) };
+        var testConnectWise = new Button { Content = "Test PSA", Padding = new Thickness(14), Margin = new Thickness(0, 0, 10, 0) };
         var save = new Button { Content = "Save settings", Padding = new Thickness(14), Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White };
         test.Click += async (_, _) => await TestApiAsync();
+        testPlatform.Click += async (_, _) => await TestPlatformAsync();
+        testConnectWise.Click += async (_, _) => await TestConnectWiseAsync();
         save.Click += (_, _) =>
         {
             if (string.IsNullOrWhiteSpace(_api.Text) || !Uri.TryCreate(_api.Text.TrimEnd('/'), UriKind.Absolute, out _))
@@ -832,19 +1117,28 @@ public sealed class SettingsWindow : Window
             Settings.ApiBase = _api.Text.TrimEnd('/');
             Settings.Extension = _extension.Text;
             Settings.CallerId = _callerId.Text;
-            Settings.Provider = _provider.SelectedItem?.ToString() ?? "Mock provider";
+            Settings.Provider = _provider.SelectedItem?.ToString() ?? "Standard SIP";
             Settings.SipServer = _sipServer.Text;
             Settings.SipUsername = _sipUser.Text;
             Settings.SipPassword = _sipPassword.Password;
-            Settings.SipTransport = _transport.SelectedItem?.ToString() ?? "TLS";
+            Settings.SipTransport = "UDP";
             Settings.ProductName = _product.Text;
             Settings.CompanyName = _company.Text;
+            Settings.ConnectWiseSite = _cwSite.Text.Trim();
+            Settings.ConnectWiseCompanyId = _cwCompany.Text.Trim();
+            Settings.ConnectWisePublicKey = _cwPublic.Text.Trim();
+            Settings.ConnectWisePrivateKey = _cwPrivate.Password;
+            Settings.ConnectWiseClientId = _cwClientId.Text.Trim();
+            Settings.ConnectWiseBoardId = int.TryParse(_cwBoardId.Text, out var boardId) ? boardId : 0;
+            ApplyPlatformFields();
             Settings.LaunchAtStartup = _startup.IsChecked == true;
             Settings.AlwaysOnTopDuringCalls = _topmost.IsChecked == true;
             SetStartup(Settings.LaunchAtStartup);
             DialogResult = true;
         };
         buttons.Children.Add(test);
+        buttons.Children.Add(testPlatform);
+        buttons.Children.Add(testConnectWise);
         buttons.Children.Add(save);
         stack.Children.Add(buttons);
         stack.Children.Add(_status);
@@ -874,6 +1168,63 @@ public sealed class SettingsWindow : Window
         }
     }
 
+    private async Task TestConnectWiseAsync()
+    {
+        var candidate = new AppSettings { ConnectWiseSite = _cwSite.Text.Trim(), ConnectWiseCompanyId = _cwCompany.Text.Trim(), ConnectWisePublicKey = _cwPublic.Text.Trim(), ConnectWisePrivateKey = _cwPrivate.Password, ConnectWiseClientId = _cwClientId.Text.Trim() };
+        if (!ConnectWiseClient.IsConfigured(candidate))
+        {
+            _status.Text = "Enter Site, Company ID, Public Key, Private Key, and Client ID.";
+            _status.Foreground = Brushes.Firebrick; return;
+        }
+        try
+        {
+            using var client = new ConnectWiseClient(candidate);
+            var result = await client.TestAsync();
+            _status.Text = result.Message;
+            _status.Foreground = result.Success ? Brushes.SeaGreen : Brushes.Firebrick;
+        }
+        catch (Exception ex) { _status.Text = ex.Message; _status.Foreground = Brushes.Firebrick; }
+    }
+
+    private async Task TestPlatformAsync()
+    {
+        ApplyPlatformFields();
+        if (!ConnectWisePlatformClient.IsConfigured(Settings))
+        {
+            _status.Text = "Enter the Platform API URL, OAuth Client ID, Client Secret, and scopes.";
+            _status.Foreground = Brushes.Firebrick;
+            return;
+        }
+        try
+        {
+            using var client = new ConnectWisePlatformClient(Settings);
+            var result = await client.TestAsync();
+            _status.Text = result.Message;
+            _status.Foreground = result.Success ? Brushes.SeaGreen : Brushes.Firebrick;
+        }
+        catch (Exception ex) { _status.Text = ex.Message; _status.Foreground = Brushes.Firebrick; }
+    }
+
+    private void ApplyPlatformFields()
+    {
+        var baseUrl = _cwPlatformBase.Text.Trim();
+        var clientId = _cwPlatformClientId.Text.Trim();
+        var clientSecret = _cwPlatformClientSecret.Password;
+        var scopes = _cwPlatformScopes.Text.Trim();
+        var changed = !string.Equals(Settings.ConnectWisePlatformBaseUrl, baseUrl, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(Settings.ConnectWisePlatformClientId, clientId, StringComparison.Ordinal)
+            || !string.Equals(Settings.ConnectWisePlatformClientSecret, clientSecret, StringComparison.Ordinal)
+            || !string.Equals(Settings.ConnectWisePlatformScopes, scopes, StringComparison.Ordinal);
+        Settings.ConnectWisePlatformBaseUrl = baseUrl;
+        Settings.ConnectWisePlatformClientId = clientId;
+        Settings.ConnectWisePlatformClientSecret = clientSecret;
+        Settings.ConnectWisePlatformScopes = scopes;
+        if (!changed) return;
+        Settings.ConnectWisePlatformAccessToken = "";
+        Settings.ConnectWisePlatformAccessTokenProtected = "";
+        Settings.ConnectWisePlatformAccessTokenExpiresAt = null;
+    }
+
     private static TextBlock Label(string text) => new() { Text = text.ToUpperInvariant(), Margin = new Thickness(0, 16, 0, 8), FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(17, 136, 182)) };
 
     private static TextBox Field() => new() { Padding = new Thickness(8), Margin = new Thickness(0, 0, 0, 8) };
@@ -892,6 +1243,51 @@ public sealed class SettingsWindow : Window
         if (enabled) key.SetValue("CallBridgeDesktop", $"\"{Environment.ProcessPath}\"");
         else key.DeleteValue("CallBridgeDesktop", false);
     }
+}
+
+public sealed class CallNoteWindow : Window
+{
+    private readonly TextBox _notes = new() { Padding = new Thickness(9), Height = 150, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    private readonly ComboBox _outcome = new();
+    public string Notes => _notes.Text.Trim();
+    public string Outcome => _outcome.SelectedItem?.ToString() ?? "";
+    public CallNoteWindow(string number, string notes, string outcome)
+    {
+        Title = "Call notes"; Width = 520; Height = 390; WindowStartupLocation = WindowStartupLocation.CenterOwner; Background = new SolidColorBrush(Color.FromRgb(246, 248, 251));
+        _notes.Text = notes;
+        foreach (var item in new[] { "", "Resolved", "Follow-up required", "Escalated", "Ticket created", "No answer" }) _outcome.Items.Add(item);
+        _outcome.SelectedItem = _outcome.Items.Cast<string>().FirstOrDefault(x => x == outcome) ?? "";
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = $"Notes for {number}", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 14) });
+        stack.Children.Add(new TextBlock { Text = "Outcome", Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 6, 0, 5) }); stack.Children.Add(_outcome);
+        stack.Children.Add(new TextBlock { Text = "Technician notes", Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 14, 0, 5) }); stack.Children.Add(_notes);
+        var save = new Button { Content = "Save notes", Padding = new Thickness(16, 9, 16, 9), HorizontalAlignment = HorizontalAlignment.Right, Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White, Margin = new Thickness(0, 16, 0, 0) };
+        save.Click += (_, _) => DialogResult = true; stack.Children.Add(save); Content = stack;
+    }
+}
+
+public sealed class TicketWindow : Window
+{
+    private readonly TextBox _summary = new() { Padding = new Thickness(9) };
+    private readonly TextBox _description = new() { Padding = new Thickness(9), Height = 130, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    public string Summary => _summary.Text.Trim();
+    public string Description => _description.Text.Trim();
+
+    public TicketWindow(string company, string contact, string phone)
+    {
+        Title = "New ConnectWise ticket"; Width = 540; Height = 390; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(246, 248, 251));
+        _summary.Text = $"Phone support - {company}";
+        _description.Text = $"Caller: {contact}\nPhone: {phone}\n\nIssue and troubleshooting notes:\n";
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = "Create service ticket", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 14) });
+        stack.Children.Add(new TextBlock { Text = $"{company} · {contact}", Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 0, 0, 14) });
+        AddField(stack, "Summary", _summary); AddField(stack, "Description", _description);
+        var create = new Button { Content = "Create ticket", Padding = new Thickness(16, 9, 16, 9), HorizontalAlignment = HorizontalAlignment.Right, Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White, Margin = new Thickness(0, 16, 0, 0) };
+        create.Click += (_, _) => { if (string.IsNullOrWhiteSpace(Summary)) { MessageBox.Show("Summary is required.", "CallBridge"); return; } DialogResult = true; };
+        stack.Children.Add(create); Content = stack;
+    }
+    private static void AddField(Panel panel, string label, Control field) { panel.Children.Add(new TextBlock { Text = label, Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 6, 0, 5) }); panel.Children.Add(field); }
 }
 
 public sealed class ContactWindow : Window
