@@ -11,7 +11,7 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.6.0";
+    private const string Version = "0.6.1";
     private readonly string _settingsPath = Path.Combine(AppContext.BaseDirectory, "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         LoadSettings();
+        ApplyTemplates();
         WireEvents();
         ApplyBranding();
         RenderPhone();
@@ -73,6 +74,44 @@ public partial class MainWindow : Window
             };
         }
     }
+
+    private void ApplyTemplates()
+    {
+        SetNav(DashboardButton, "E80F", "Dashboard");
+        SetNav(PhoneButton, "E717", "Phone");
+        SetNav(ContactsButton, "E77B", "Contacts");
+        SetNav(HistoryButton, "E823", "Call history");
+        SetNav(MessagesButton, "E8BD", "Messages");
+        SetNav(VoicemailButton, "E720", "Voicemail");
+        SetNav(ParkingButton, "E811", "Parking");
+        SetNav(RecordingsButton, "E7C8", "Recordings");
+        SetNav(MspButton, "E90F", "MSP actions");
+        SetNav(SettingsButton, "E713", "Settings");
+
+    }
+
+    private static void SetNav(Button button, string glyphHex, string label)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(new TextBlock
+        {
+            Text = char.ConvertFromUtf32(Convert.ToInt32(glyphHex, 16)),
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            Width = 28,
+            FontSize = 15,
+            Foreground = Brush("#0E7FAE"),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = Brush("#263544")
+        });
+        button.Content = panel;
+    }
+
 
     private void LoadSettings()
     {

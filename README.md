@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.6.0
+# CallBridge Softphone v0.6.1
 
 Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
@@ -15,6 +15,7 @@ If the `publish` folder is present, the launcher starts the compiled app. Otherw
 ## Included
 
 - Axion-style white-label Windows app shell
+- Polished MSP-grade visual treatment with softer panels, icon navigation, and structured list rows
 - Dialpad and active-call controls
 - Provider selector for mock, standard SIP test, and future Axion/Noixa integration
 - Functional settings window
