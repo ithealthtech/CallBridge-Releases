@@ -1,0 +1,45 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+settings.json
+portal-secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Runtime data
+data/
+logs/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+*.dmp
+
+# .NET and generated output
+**/bin/
+**/obj/
+**/publish/
+publish/
+.dotnet/
+nuget-appdata/
+
+# IDE and operating system
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+
+# Local tooling and packages
+.agents/
+.codex/
+tmp/
+*.zip
+artifacts/
+TestResults/
