@@ -1,4 +1,4 @@
-# CallBridge Softphone v0.6.1
+# CallBridge Softphone v0.6.2
 
 Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
@@ -15,7 +15,8 @@ If the `publish` folder is present, the launcher starts the compiled app. Otherw
 ## Included
 
 - Axion-style white-label Windows app shell
-- Polished MSP-grade visual treatment with softer panels, icon navigation, and structured list rows
+- Modern MSP-grade visual treatment with softer geometry, richer color, gradients, icon navigation, and structured list rows
+- Bundled IT HealthTech logo from the public `ithealthtech.com` site
 - Dialpad and active-call controls
 - Provider selector for mock, standard SIP test, and future Axion/Noixa integration
 - Functional settings window
