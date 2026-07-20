@@ -1,39 +1,37 @@
-# CallBridge Softphone v0.5.0
+# CallBridge Softphone v0.6.0
 
-A dependency-free Windows desktop softphone prototype for Hive/Axion PBX workflows.
+Compiled Windows WPF softphone/control-center prototype for the white-label CallBridge VOIP app.
 
 ## Run
 
-Double-click `run-softphone.cmd`. No installation, browser, port, Node.js, or npm is required.
+Double-click:
+
+```text
+run-softphone.cmd
+```
+
+If the `publish` folder is present, the launcher starts the compiled app. Otherwise it runs the project with the installed .NET 8 SDK.
 
 ## Included
 
-- IT Health Technologies blue/teal visual system
-- Windows-native Segoe MDL2 icons with no encoding corruption
-- Dial pad and number entry
-- Simulated outgoing call state
-- Mute, hold, transfer, keypad, and hang-up controls
-- Contacts, favorites, and presence
-- Call history and missed-call indicators
-- Voicemail and messaging navigation
-- Device and SIP account settings
-- Searchable contacts, call history, messages, and voicemail
-- PBX dashboard and connector health
-- Hive PBX, SIP, connector, and directory connection views
-- Live `/health` and `/diagnostics` connector status
-- Live `/events/recent` call history with automatic demo fallback
-- Editable local API and extension configuration in `settings.json`
-- Real telephony API dialing and hangup
-- Live mute, hold, resume, DTMF, and transfer controls
-- White-label product name, company name, colors, extension, and API settings
-- Provider-neutral customer-facing connection labels
-- Functional settings editor with persistent JSON storage
-- API connection testing
-- Windows audio-device enumeration
-- Windows startup registration
-- Always-on-top behavior applied only during active calls
-- Always-on-top and launch-at-startup preferences
+- Axion-style white-label Windows app shell
+- Dialpad and active-call controls
+- Provider selector for mock, standard SIP test, and future Axion/Noixa integration
+- Functional settings window
+- Local settings persistence in `settings.json`
+- Connector API health check against `http://127.0.0.1:8787`
+- Call control wiring for the CallBridge Internal telephony endpoints
+- Contacts, call history, messages, voicemail, parking, recordings, and MSP action views
 
-## Telephony boundary
+## Provider status
 
-The current build provides the complete desktop interaction shell and simulated call state. Real registration, audio, incoming calls, DTMF, transfer, voicemail, and presence require a Hive PBX SIP/WebRTC adapter.
+The mock provider is usable now for app workflow testing.
+
+The standard SIP test provider is ready for credentials from a SIP service that allows direct SIP registration. Axion/Noixa remains intentionally blocked until Axion supplies approved SBC/WebRTC or portal API integration details.
+
+## Build
+
+```powershell
+dotnet build .\CallBridge.Desktop.csproj -c Release
+dotnet publish .\CallBridge.Desktop.csproj -c Release -o .\publish
+```

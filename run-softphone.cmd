@@ -1,5 +1,8 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0CallBridge-Softphone.ps1"
-if errorlevel 1 pause
+set APP_DIR=%~dp0
+if exist "%APP_DIR%publish\CallBridge.Desktop.exe" (
+  start "" "%APP_DIR%publish\CallBridge.Desktop.exe"
+) else (
+  dotnet run --project "%APP_DIR%CallBridge.Desktop.csproj" --configuration Release
+)
