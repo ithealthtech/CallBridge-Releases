@@ -4,6 +4,12 @@ CallBridge is a white-label Windows VoIP desktop application with standard SIP c
 
 This repository is the production source tree. Historical prototypes and generated release artifacts are intentionally excluded.
 
+## Screenshots
+
+| Dashboard | Phone | Settings |
+| --- | --- | --- |
+| ![CallBridge dashboard showing connector health and operational status](docs/screenshots/dashboard.png) | ![CallBridge phone screen with dialer and call controls](docs/screenshots/phone.png) | ![CallBridge settings screen for SIP, ConnectWise, and white-label configuration](docs/screenshots/settings.png) |
+
 ## Repository layout
 
 - `src/CallBridge.Desktop` — .NET 8 WPF desktop application and SIP media client.
