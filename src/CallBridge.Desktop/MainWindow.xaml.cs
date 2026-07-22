@@ -1,7 +1,8 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -15,7 +16,10 @@ namespace CallBridge.Desktop;
 
 public partial class MainWindow : Window
 {
-    private const string Version = "0.10.0";
+    private const string Version = "0.13.0";
+    private const string StandardSipProvider = "Standard SIP";
+    private const string AxionHivePbxProvider = "Axion / HivePBX";
+    private const string AxionNoixaPendingProvider = "Axion / Noixa pending";
     private readonly string _settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IT Health Technologies", "CallBridge", "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
@@ -32,9 +36,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         LoadSettings();
+        var localToken = Environment.GetEnvironmentVariable("CALLBRIDGE_LOCAL_TOKEN");
+        if (!string.IsNullOrWhiteSpace(localToken))
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", localToken);
         ApplyTemplates();
         WireEvents();
         ApplyBranding();
+        SizeChanged += (_, _) => ApplyResponsiveLayout();
+        ApplyResponsiveLayout();
         _ = RenderPhoneAsync();
         _ = RefreshHealthAsync();
         _statusTimer.Tick += (_, _) => RefreshOperationalStatus();
@@ -59,13 +68,15 @@ public partial class MainWindow : Window
 
     private void WireEvents()
     {
-        ProviderBox.Items.Add("Standard SIP");
-        ProviderBox.Items.Add("Axion / Noixa pending");
+        ProviderBox.Items.Add(StandardSipProvider);
+        ProviderBox.Items.Add(AxionHivePbxProvider);
+        ProviderBox.Items.Add(AxionNoixaPendingProvider);
         ProviderBox.SelectedItem = _settings.Provider;
         ProviderBox.SelectionChanged += async (_, _) =>
         {
-            _settings.Provider = ProviderBox.SelectedItem?.ToString() ?? "Standard SIP";
-            if (_settings.Provider != "Standard SIP" && _sip.IsRegistered) await _sip.UnregisterAsync();
+            _settings.Provider = ProviderBox.SelectedItem?.ToString() ?? StandardSipProvider;
+            ApplyProviderPreset();
+            if (!IsSipBackedProvider(_settings.Provider) && _sip.IsRegistered) await _sip.UnregisterAsync();
             SaveSettings(false);
             UpdateProviderStatus();
         };
@@ -95,11 +106,11 @@ public partial class MainWindow : Window
         PhoneButton.Click += async (_, _) => await RenderPhoneAsync();
         ContactsButton.Click += async (_, _) => ShowRows("Contacts", "Live directory records from CallBridge", await ContactRowsAsync());
         HistoryButton.Click += async (_, _) => ShowRows("Call history", "Inbound, outbound, and missed calls", await HistoryRowsAsync());
-        MessagesButton.Click += (_, _) => ShowRows("Messages", "SMS and internal chat", MessageRows());
+        MessagesButton.Click += (_, _) => ShowRows("More", "Provider-dependent tools and call add-ons", MoreRows());
         VoicemailButton.Click += (_, _) => ShowRows("Voicemail", "New and saved voice messages", VoicemailRows());
         ParkingButton.Click += (_, _) => ShowRows("Parking", "Parked calls and pickup slots", ParkingRows());
         RecordingsButton.Click += (_, _) => ShowRows("Recordings", "Call recordings and review queue", RecordingRows());
-        MspButton.Click += async (_, _) => ShowRows("MSP actions", "Live ConnectWise support workflows", await MspRowsAsync());
+        MspButton.Click += async (_, _) => ShowRows("ConnectWise", "Live ConnectWise support workflows", await MspRowsAsync());
         SettingsButton.Click += (_, _) => ShowSettings();
 
         foreach (Button button in DialPad.Children.OfType<Button>())
@@ -108,7 +119,7 @@ public partial class MainWindow : Window
             {
                 var digit = button.Content.ToString()![0].ToString();
                 if (_activeCallId is null) DialText.Text += digit;
-                else if (_settings.Provider == "Standard SIP") await _sip.SendDtmfAsync(digit);
+                else if (IsSipBackedProvider(_settings.Provider)) await _sip.SendDtmfAsync(digit);
                 else await PostTelephonyAsync($"/telephony/calls/{_activeCallId}/dtmf", new { digits = digit });
             };
         }
@@ -150,7 +161,7 @@ public partial class MainWindow : Window
         if (row.Action.Equals("Configure", StringComparison.OrdinalIgnoreCase)) { ShowSettings(); return; }
         if (row.Action.Equals("Sync", StringComparison.OrdinalIgnoreCase)) { await SyncConnectWiseAsync(); return; }
 
-        MessageBox.Show($"{row.Title}\n\n{row.Detail}\n\nThis workflow is staged in the UI and ready for backend integration.", "CallBridge");
+        MessageBox.Show($"{row.Title}\n\n{row.Detail}\n\nThis provider-dependent workflow is not available with the current configuration.", "CallBridge", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private static string ExtractDestination(string detail)
@@ -167,12 +178,15 @@ public partial class MainWindow : Window
         SetNav(PhoneButton, "E717", "Phone");
         SetNav(ContactsButton, "E77B", "Contacts");
         SetNav(HistoryButton, "E823", "Call history");
-        SetNav(MessagesButton, "E8BD", "Messages");
+        SetNav(MessagesButton, "E712", "More");
         SetNav(VoicemailButton, "E720", "Voicemail");
         SetNav(ParkingButton, "E811", "Parking");
         SetNav(RecordingsButton, "E7C8", "Recordings");
-        SetNav(MspButton, "E90F", "MSP actions");
+        SetNav(MspButton, "E90F", "ConnectWise");
         SetNav(SettingsButton, "E713", "Settings");
+        VoicemailButton.Visibility = Visibility.Collapsed;
+        ParkingButton.Visibility = Visibility.Collapsed;
+        RecordingsButton.Visibility = Visibility.Collapsed;
 
     }
 
@@ -210,7 +224,9 @@ public partial class MainWindow : Window
             {
                 var json = File.ReadAllText(sourcePath);
                 _settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions()) ?? new AppSettings();
-                if (_settings.Provider is "Mock provider" or "Standard SIP test") _settings.Provider = "Standard SIP";
+                if (!LocalApi.TryNormalize(_settings.ApiBase, out var apiBase)) apiBase = LocalApi.DefaultBase;
+                _settings.ApiBase = apiBase;
+                if (_settings.Provider is "Mock provider" or "Standard SIP test") _settings.Provider = StandardSipProvider;
                 if (!string.IsNullOrWhiteSpace(_settings.SipPasswordProtected)) _settings.SipPassword = CredentialProtector.Unprotect(_settings.SipPasswordProtected);
                 else
                 {
@@ -263,6 +279,36 @@ public partial class MainWindow : Window
         ExtensionText.Text = $"Extension {_settings.Extension}";
         ProviderBox.SelectedItem = _settings.Provider;
         UpdateProviderStatus();
+        VersionText.Text = $"CallBridge v{Version}";
+    }
+
+    private void ApplyResponsiveLayout()
+    {
+        var compact = ActualWidth > 0 && ActualWidth < 940;
+        SidebarColumn.Width = new GridLength(compact ? 68 : 226);
+        SidebarRoot.Margin = compact ? new Thickness(10) : new Thickness(18);
+        BrandBlock.Margin = compact ? new Thickness(0, 4, 0, 12) : new Thickness(0, 6, 0, 20);
+        ContentHost.Margin = compact ? new Thickness(18) : new Thickness(30);
+        DialerColumn.Width = new GridLength(compact ? 300 : 360);
+        PhoneGapColumn.Width = new GridLength(compact ? 14 : 22);
+
+        foreach (var button in new[] { DashboardButton, PhoneButton, ContactsButton, HistoryButton, MspButton, MessagesButton, SettingsButton })
+        {
+            button.Padding = compact ? new Thickness(10, 9, 10, 9) : new Thickness(13, 11, 13, 11);
+            button.Margin = compact ? new Thickness(0, 2, 0, 2) : new Thickness(0, 3, 0, 3);
+            if (button.Content is StackPanel panel && panel.Children.Count > 1)
+            {
+                panel.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+                ((FrameworkElement)panel.Children[0]).Width = compact ? 26 : 28;
+                panel.Children[1].Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            }
+        }
+
+        PresenceDetails.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        SidebarStatus.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        BrandTitle.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        BrandSubtitle.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+        LogoText.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async Task RenderPhoneAsync()
@@ -498,15 +544,24 @@ public partial class MainWindow : Window
         }
     }
 
+
+    private static bool IsSipBackedProvider(string provider) =>
+        provider is StandardSipProvider or AxionHivePbxProvider;
+
+    private void ApplyProviderPreset()
+    {
+        // Provider presets must not ship tenant-specific SIP domains or credentials.
+    }
     private async Task ToggleRegistrationAsync()
     {
-        if (_settings.Provider == "Axion / Noixa pending")
+        ApplyProviderPreset();
+        if (_settings.Provider == AxionNoixaPendingProvider)
         {
             MessageBox.Show("Axion/Noixa calling requires their approved SBC/WebRTC integration details. This provider is intentionally blocked until those are supplied.", "CallBridge");
             return;
         }
 
-        if (_settings.Provider == "Standard SIP")
+        if (IsSipBackedProvider(_settings.Provider))
         {
             if (_sip.IsRegistered)
             {
@@ -527,18 +582,18 @@ public partial class MainWindow : Window
             if (!sipResult.Success) ShowApiError(sipResult.Message);
             return;
         }
-        MessageBox.Show("Select Standard SIP and add registrar credentials before registering.", "CallBridge");
+        MessageBox.Show("Select a SIP-backed provider and add registrar credentials before registering.", "CallBridge");
     }
 
     private void RefreshOperationalStatus()
     {
-        if (_settings.Provider == "Standard SIP")
+        if (IsSipBackedProvider(_settings.Provider))
         {
             _registered = _sip.IsRegistered;
             UpdateProviderStatus();
             return;
         }
-        if (_settings.Provider == "Axion / Noixa pending")
+        if (_settings.Provider == AxionNoixaPendingProvider)
         {
             _registered = false;
             UpdateProviderStatus();
@@ -561,7 +616,7 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is not null)
         {
-            if (_settings.Provider == "Standard SIP")
+            if (IsSipBackedProvider(_settings.Provider))
             {
                 await _sip.HangupAsync();
                 await LogSipEventAsync("hangup");
@@ -581,7 +636,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_settings.Provider == "Standard SIP")
+        if (IsSipBackedProvider(_settings.Provider))
         {
             _sipCallId = Guid.NewGuid().ToString("N");
             _activeCallId = _sipCallId;
@@ -599,7 +654,7 @@ public partial class MainWindow : Window
                 ShowApiError(result.Message);
                 return;
             }
-            CallStateText.Text = "CONNECTED - STANDARD SIP";
+            CallStateText.Text = $"CONNECTED - {_settings.Provider.ToUpperInvariant()}";
             await LogSipEventAsync("connected");
             return;
         }
@@ -626,7 +681,7 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is null) return;
         var requested = !_muted;
-        if (_settings.Provider == "Standard SIP")
+        if (IsSipBackedProvider(_settings.Provider))
         {
             try { await _sip.SetMutedAsync(requested); _muted = requested; MuteButton.Content = _muted ? "Unmute" : "Mute"; }
             catch (Exception ex) { ShowApiError(ex.Message); }
@@ -642,7 +697,7 @@ public partial class MainWindow : Window
     {
         if (_activeCallId is null) return;
         var requested = !_held;
-        if (_settings.Provider == "Standard SIP")
+        if (IsSipBackedProvider(_settings.Provider))
         {
             try
             {
@@ -666,7 +721,7 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Transfer call", "Destination extension or phone number");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
-            if (_settings.Provider == "Standard SIP")
+            if (IsSipBackedProvider(_settings.Provider))
             {
                 var sipResult = await _sip.TransferAsync(prompt.Value);
                 if (!sipResult.Success) { ShowApiError(sipResult.Message); return; }
@@ -686,7 +741,7 @@ public partial class MainWindow : Window
         var prompt = new PromptWindow("Send DTMF", "Digits");
         if (prompt.ShowDialog() == true && !string.IsNullOrWhiteSpace(prompt.Value))
         {
-            if (_settings.Provider == "Standard SIP")
+            if (IsSipBackedProvider(_settings.Provider))
             {
                 try { await _sip.SendDtmfAsync(prompt.Value); } catch (Exception ex) { ShowApiError(ex.Message); }
                 return;
@@ -750,12 +805,12 @@ public partial class MainWindow : Window
                     var company = Value(call, "companyName");
                     var notes = Value(call, "notes");
                     var outcome = Value(call, "outcome");
-                    var detail = $"{direction} · {Value(call, "state")} · {duration} · {Value(call, "startedAt")}";
-                    if (!string.IsNullOrWhiteSpace(company)) detail += $" · {company}";
-                    if (!string.IsNullOrWhiteSpace(outcome)) detail += $" · {outcome}";
+                    var detail = $"{direction} Â· {Value(call, "state")} Â· {duration} Â· {Value(call, "startedAt")}";
+                    if (!string.IsNullOrWhiteSpace(company)) detail += $" Â· {company}";
+                    if (!string.IsNullOrWhiteSpace(outcome)) detail += $" Â· {outcome}";
                     return new RowItem(string.IsNullOrWhiteSpace(number) ? "Unknown number" : number, detail, "Call", number, Company: company, CompanyId: Value(call, "companyId"), CallId: Value(call, "callId"), Notes: notes, Outcome: outcome);
                 }).ToList();
-                return rows.Count > 0 ? rows : EmptyRows("No live call history is available yet. Calls and webhook events will appear here after real traffic is received.");
+                return rows.Count > 0 ? rows : EmptyRows("No live call history is available yet. Completed and missed calls will appear here after real traffic is received.");
             }
         }
         catch { }
@@ -788,7 +843,12 @@ public partial class MainWindow : Window
         await File.WriteAllTextAsync(picker.FileName, csv.ToString(), Encoding.UTF8);
     }
 
-    private static string Csv(string value) => $"\"{value.Replace("\"", "\"\"").Replace("\r", " ").Replace("\n", " ")}\"";
+    private static string Csv(string value)
+    {
+        var safe = value.Replace("\r", " ").Replace("\n", " ");
+        if (safe.Length > 0 && safe[0] is '=' or '+' or '-' or '@' or '\t') safe = "'" + safe;
+        return $"\"{safe.Replace("\"", "\"\"")}\"";
+    }
 
     private static string Value(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) ? value.ToString() : "";
@@ -842,6 +902,13 @@ public partial class MainWindow : Window
     [
         new("No live messages", "SMS/chat provider integration is not connected yet.", "Open")
     ];
+    private static List<RowItem> MoreRows() =>
+    [
+        new("Messages", "SMS/chat provider integration is not connected yet.", "Unavailable"),
+        new("Voicemail", "Voicemail provider integration is not connected yet.", "Unavailable"),
+        new("Call parking", "Call parking integration is not connected yet.", "Unavailable"),
+        new("Recordings", "Recording provider integration is not connected yet.", "Unavailable")
+    ];
 
     private static List<RowItem> VoicemailRows() =>
     [
@@ -892,6 +959,21 @@ public sealed record RowItem(string Title, string Detail, string Action, string 
 }
 
 public sealed record TelephonyResult(bool Success, string? CallId, string Message);
+
+public static class LocalApi
+{
+    public const string DefaultBase = "http://127.0.0.1:8787";
+
+    public static bool TryNormalize(string? value, out string normalized)
+    {
+        normalized = "";
+        if (!Uri.TryCreate(value?.Trim().TrimEnd('/'), UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttp || !uri.IsLoopback || !string.IsNullOrEmpty(uri.UserInfo)) return false;
+        if (uri.AbsolutePath != "/" || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment)) return false;
+        normalized = uri.GetLeftPart(UriPartial.Authority);
+        return true;
+    }
+}
 
 public static class CredentialProtector
 {
@@ -1050,7 +1132,7 @@ public sealed class SettingsWindow : Window
         _cwPlatformClientId.Text = Settings.ConnectWisePlatformClientId;
         _cwPlatformClientSecret.Password = Settings.ConnectWisePlatformClientSecret;
         _cwPlatformScopes.Text = Settings.ConnectWisePlatformScopes;
-        foreach (var item in new[] { "Standard SIP", "Axion / Noixa pending" }) _provider.Items.Add(item);
+        foreach (var item in new[] { "Standard SIP", "Axion / HivePBX", "Axion / Noixa pending" }) _provider.Items.Add(item);
         _provider.SelectedItem = Settings.Provider;
         _transport.Items.Add("UDP");
         _transport.SelectedItem = "UDP";
@@ -1069,7 +1151,7 @@ public sealed class SettingsWindow : Window
         Add(stack, "CallBridge API address", _api);
         Add(stack, "Extension", _extension);
         Add(stack, "Outbound caller ID", _callerId);
-        stack.Children.Add(Label("SIP test provider"));
+        stack.Children.Add(Label("SIP provider"));
         Add(stack, "SIP server / domain", _sipServer);
         Add(stack, "SIP username", _sipUser);
         Add(stack, "SIP password", _sipPassword);
@@ -1102,9 +1184,9 @@ public sealed class SettingsWindow : Window
         testConnectWise.Click += async (_, _) => await TestConnectWiseAsync();
         save.Click += (_, _) =>
         {
-            if (string.IsNullOrWhiteSpace(_api.Text) || !Uri.TryCreate(_api.Text.TrimEnd('/'), UriKind.Absolute, out _))
+            if (!LocalApi.TryNormalize(_api.Text, out var apiBase))
             {
-                _status.Text = "Enter a valid absolute API URL.";
+                _status.Text = "The CallBridge API must use HTTP on the local computer.";
                 _status.Foreground = Brushes.Firebrick;
                 return;
             }
@@ -1114,7 +1196,7 @@ public sealed class SettingsWindow : Window
                 _status.Foreground = Brushes.Firebrick;
                 return;
             }
-            Settings.ApiBase = _api.Text.TrimEnd('/');
+            Settings.ApiBase = apiBase;
             Settings.Extension = _extension.Text;
             Settings.CallerId = _callerId.Text;
             Settings.Provider = _provider.SelectedItem?.ToString() ?? "Standard SIP";
@@ -1147,9 +1229,9 @@ public sealed class SettingsWindow : Window
 
     private async Task TestApiAsync()
     {
-        if (!Uri.TryCreate(_api.Text.TrimEnd('/'), UriKind.Absolute, out var baseUri))
+        if (!LocalApi.TryNormalize(_api.Text, out var apiBase) || !Uri.TryCreate(apiBase, UriKind.Absolute, out var baseUri))
         {
-            _status.Text = "Enter a valid absolute API URL.";
+            _status.Text = "The CallBridge API must use HTTP on the local computer.";
             _status.Foreground = Brushes.Firebrick;
             return;
         }
@@ -1281,7 +1363,7 @@ public sealed class TicketWindow : Window
         _description.Text = $"Caller: {contact}\nPhone: {phone}\n\nIssue and troubleshooting notes:\n";
         var stack = new StackPanel { Margin = new Thickness(26) };
         stack.Children.Add(new TextBlock { Text = "Create service ticket", FontSize = 24, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 14) });
-        stack.Children.Add(new TextBlock { Text = $"{company} · {contact}", Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 0, 0, 14) });
+        stack.Children.Add(new TextBlock { Text = $"{company} Â· {contact}", Foreground = new SolidColorBrush(Color.FromRgb(102, 117, 134)), Margin = new Thickness(0, 0, 0, 14) });
         AddField(stack, "Summary", _summary); AddField(stack, "Description", _description);
         var create = new Button { Content = "Create ticket", Padding = new Thickness(16, 9, 16, 9), HorizontalAlignment = HorizontalAlignment.Right, Background = new SolidColorBrush(Color.FromRgb(17, 136, 182)), Foreground = Brushes.White, Margin = new Thickness(0, 16, 0, 0) };
         create.Click += (_, _) => { if (string.IsNullOrWhiteSpace(Summary)) { MessageBox.Show("Summary is required.", "CallBridge"); return; } DialogResult = true; };
@@ -1343,3 +1425,9 @@ public sealed class PromptWindow : Window
         Content = stack;
     }
 }
+
+
+
+
+
+

@@ -1,0 +1,217 @@
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using CallBridge.Desktop;
+
+var settings = new AppSettings
+{
+    ConnectWiseSite = "https://na.example.connectwise.net",
+    ConnectWiseCompanyId = "acme",
+    ConnectWisePublicKey = "public-key",
+    ConnectWisePrivateKey = "private-key",
+    ConnectWiseClientId = "client-id"
+};
+
+var handler = new FakeConnectWiseHandler();
+using var client = new ConnectWiseClient(settings, handler);
+
+var test = await client.TestAsync();
+Assert(test.Success, test.Message);
+
+var contacts = await client.DownloadContactsAsync();
+Assert(contacts.Count == 1, "Expected one callable contact.");
+var contact = contacts[0];
+Assert(contact.CompanyId == "101" && contact.CompanyName == "Acme Widgets", "Company mapping failed.");
+Assert(contact.ContactId == "202" && contact.ContactName == "Avery Stone", "Contact mapping failed.");
+Assert(contact.Phones.SequenceEqual(new[] { "+1 (908) 555-0100", "908-555-0101" }), "Phone extraction or fax filtering failed.");
+
+var ticket = await client.CreateTicketAsync("101", 7, "Phone support", "Caller needs assistance.");
+Assert(ticket.GetProperty("id").GetInt32() == 9001, "Ticket response parsing failed.");
+Assert(handler.SawValidAuthentication, "ConnectWise authentication headers were not sent.");
+Assert(handler.SawExpectedTicket, "ConnectWise ticket request body was incorrect.");
+Assert(client.CompanyUrl("101").StartsWith("https://na.example.connectwise.net/", StringComparison.Ordinal), "Company deep link was incorrect.");
+
+var platformSettings = new AppSettings
+{
+    ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
+    ConnectWisePlatformClientId = "platform-client-smoke",
+    ConnectWisePlatformClientSecret = "platform-secret",
+    ConnectWisePlatformScopes = "platform.companies.read, platform.tickets.create"
+};
+var platformHandler = new FakePlatformHandler(exhaustAfterRequest: true);
+using var platform = new ConnectWisePlatformClient(platformSettings, platformHandler);
+Assert((await platform.TestAsync()).Success, "Platform OAuth token request failed.");
+Assert((await platform.TestAsync()).Success, "Cached Platform OAuth token failed.");
+Assert(platformHandler.TokenRequests == 1, "Platform OAuth token was not reused until expiry.");
+using (var platformRequest = new HttpRequestMessage(HttpMethod.Get, $"{ConnectWisePlatformClient.NorthAmericaBaseUrl}/v1/companies"))
+using (var platformResponse = await platform.SendAsync(platformRequest))
+{
+    Assert(platformResponse.IsSuccessStatusCode, "Authorized Platform request failed.");
+}
+Assert(platformHandler.SawBearerToken, "Platform Bearer token was not sent.");
+try
+{
+    using var foreignOrigin = new HttpRequestMessage(HttpMethod.Get, "https://attacker.example.invalid/collect");
+    using var _ = await platform.SendAsync(foreignOrigin);
+    throw new InvalidOperationException("Platform credentials must never be sent to a foreign origin.");
+}
+catch (InvalidOperationException ex) when (ex.Message.Contains("different origin", StringComparison.OrdinalIgnoreCase))
+{
+}
+try
+{
+    using var blockedRequest = new HttpRequestMessage(HttpMethod.Get, $"{ConnectWisePlatformClient.NorthAmericaBaseUrl}/v1/tickets");
+    using var _ = await platform.SendAsync(blockedRequest);
+    throw new InvalidOperationException("Exhausted Platform quota should pause calls until reset.");
+}
+catch (HttpRequestException ex) when (ex.Message.Contains("quota is exhausted", StringComparison.OrdinalIgnoreCase))
+{
+}
+
+var limitedSettings = new AppSettings
+{
+    ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
+    ConnectWisePlatformClientId = "platform-client-429-smoke",
+    ConnectWisePlatformClientSecret = "platform-secret",
+    ConnectWisePlatformScopes = "platform.companies.read"
+};
+using var limited = new ConnectWisePlatformClient(limitedSettings, new FakePlatformHandler(return429: true));
+try
+{
+    using var limitedRequest = new HttpRequestMessage(HttpMethod.Get, $"{ConnectWisePlatformClient.NorthAmericaBaseUrl}/v1/companies");
+    using var _ = await limited.SendAsync(limitedRequest);
+    throw new InvalidOperationException("Platform 429 response should be surfaced with a reset time.");
+}
+catch (HttpRequestException ex) when (ex.Message.Contains("429 Too Many Requests", StringComparison.OrdinalIgnoreCase) && ex.Message.Contains("paused until", StringComparison.OrdinalIgnoreCase))
+{
+}
+
+try
+{
+    using var invalid = new ConnectWiseClient(new AppSettings
+    {
+        ConnectWiseSite = "http://insecure.example.com",
+        ConnectWiseCompanyId = "x",
+        ConnectWisePublicKey = "x",
+        ConnectWisePrivateKey = "x",
+        ConnectWiseClientId = "x"
+    });
+    throw new InvalidOperationException("Insecure ConnectWise URLs must be rejected.");
+}
+catch (ArgumentException)
+{
+}
+
+Console.WriteLine("ConnectWise PSA and Platform OAuth tests passed: authentication, token reuse, rate-limit pause, contact mapping, deep links, and ticket payloads.");
+
+static void Assert(bool condition, string message)
+{
+    if (!condition) throw new InvalidOperationException(message);
+}
+
+sealed class FakeConnectWiseHandler : HttpMessageHandler
+{
+    public bool SawValidAuthentication { get; private set; }
+    public bool SawExpectedTicket { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        SawValidAuthentication |= request.Headers.Authorization?.Scheme == "Basic"
+            && !string.IsNullOrWhiteSpace(request.Headers.Authorization.Parameter)
+            && request.Headers.TryGetValues("clientId", out var clientIds)
+            && clientIds.Single() == "client-id";
+
+        var path = request.RequestUri?.AbsolutePath ?? "";
+        if (request.Method == HttpMethod.Get && path.EndsWith("/company/companies", StringComparison.Ordinal))
+            return Json(HttpStatusCode.OK, "[]");
+
+        if (request.Method == HttpMethod.Get && path.EndsWith("/company/contacts", StringComparison.Ordinal))
+        {
+            const string body = """
+            [{
+              "id": 202,
+              "firstName": "Avery",
+              "lastName": "Stone",
+              "company": { "id": 101, "name": "Acme Widgets" },
+              "communicationItems": [
+                { "type": "Phone", "value": "+1 (908) 555-0100" },
+                { "communicationType": "Mobile", "value": "908-555-0101" },
+                { "type": "Fax", "value": "908-555-0199" },
+                { "type": "Email", "value": "avery@example.com" }
+              ]
+            }]
+            """;
+            return Json(HttpStatusCode.OK, body);
+        }
+
+        if (request.Method == HttpMethod.Post && path.EndsWith("/service/tickets", StringComparison.Ordinal))
+        {
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            SawExpectedTicket = root.GetProperty("summary").GetString() == "Phone support"
+                && root.GetProperty("company").GetProperty("id").GetInt32() == 101
+                && root.GetProperty("board").GetProperty("id").GetInt32() == 7
+                && root.GetProperty("initialDescription").GetString() == "Caller needs assistance.";
+            return Json(HttpStatusCode.Created, "{\"id\":9001}");
+        }
+
+        return Json(HttpStatusCode.NotFound, "{\"message\":\"unexpected request\"}");
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status)
+    {
+        Content = new StringContent(body, Encoding.UTF8, "application/json")
+    };
+}
+
+sealed class FakePlatformHandler(bool exhaustAfterRequest = false, bool return429 = false) : HttpMessageHandler
+{
+    public int TokenRequests { get; private set; }
+    public bool SawBearerToken { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri?.AbsolutePath ?? "";
+        if (request.Method == HttpMethod.Post && path == "/v1/token")
+        {
+            TokenRequests++;
+            Assert(request.Content?.Headers.ContentType?.MediaType == "application/json", "Platform token request must use JSON.");
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            using var document = JsonDocument.Parse(body);
+            var root = document.RootElement;
+            Assert(root.GetProperty("grant_type").GetString() == "client_credentials", "Platform grant type was incorrect.");
+            Assert(root.GetProperty("client_id").GetString()!.StartsWith("platform-client-", StringComparison.Ordinal), "Platform Client ID was incorrect.");
+            Assert(root.GetProperty("client_secret").GetString() == "platform-secret", "Platform Client Secret was incorrect.");
+            Assert(root.GetProperty("scope").GetString()!.Contains("platform.companies.read", StringComparison.Ordinal), "Platform scopes were incorrect.");
+            return Json(HttpStatusCode.OK, "{\"access_token\":\"bearer-smoke-token\",\"expires_in\":3600}");
+        }
+
+        SawBearerToken = request.Headers.Authorization?.Scheme == "Bearer" && request.Headers.Authorization.Parameter == "bearer-smoke-token";
+        if (return429)
+        {
+            var limited = Json(HttpStatusCode.TooManyRequests, "{\"message\":\"quota exhausted\"}");
+            limited.Headers.TryAddWithoutValidation("Limit", "500");
+            limited.Headers.TryAddWithoutValidation("Remaining", "0");
+            limited.Headers.TryAddWithoutValidation("Reset", DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds().ToString());
+            return limited;
+        }
+
+        var response = Json(HttpStatusCode.OK, "[]");
+        response.Headers.TryAddWithoutValidation("Limit", "500");
+        response.Headers.TryAddWithoutValidation("Remaining", exhaustAfterRequest ? "0" : "499");
+        response.Headers.TryAddWithoutValidation("Reset", DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds().ToString());
+        return response;
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status)
+    {
+        Content = new StringContent(body, Encoding.UTF8, "application/json")
+    };
+
+    private static void Assert(bool condition, string message)
+    {
+        if (!condition) throw new InvalidOperationException(message);
+    }
+}

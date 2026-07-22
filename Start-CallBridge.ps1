@@ -1,67 +1,135 @@
+param(
+    [ValidateRange(1024, 65535)]
+    [int]$Port = 8787,
+
+    [ValidateRange(1, 3650)]
+    [int]$CallRetentionDays = 90
+)
+
 $ErrorActionPreference = 'Stop'
 
-$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ExePath = Join-Path $AppDir 'publish\CallBridge.Desktop.exe'
-$ProjectPath = Join-Path $AppDir 'CallBridge.Desktop.csproj'
-$BackendDir = Resolve-Path -LiteralPath (Join-Path $AppDir '..\..\Alpha Testing\CallBridge-Internal-v0.12') -ErrorAction SilentlyContinue
-$BackendLogDir = Join-Path $AppDir 'logs'
-$BackendLog = Join-Path $BackendLogDir 'callbridge-internal.log'
-$HealthUrl = 'http://127.0.0.1:8787/health'
+# Some launch environments expose both `Path` and `PATH`; Windows PowerShell's
+# Start-Process cannot copy that malformed environment to a child process.
+$pathKeys = @([Environment]::GetEnvironmentVariables().Keys | Where-Object { $_ -cmatch '^(Path|PATH)$' })
+if ($pathKeys -ccontains 'Path' -and $pathKeys -ccontains 'PATH') {
+    Remove-Item Env:PATH -ErrorAction SilentlyContinue
+}
 
-function Test-CallBridgePort {
-    try {
-        $connection = Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort 8787 -State Listen -ErrorAction Stop
-        return $null -ne $connection
-    } catch {
-        return $false
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$DesktopDir = Join-Path $Root 'src\CallBridge.Desktop'
+$ServiceDir = Join-Path $Root 'src\CallBridge.Service'
+$DesktopExe = Join-Path $Root 'publish\desktop\CallBridge.Desktop.exe'
+$DesktopProject = Join-Path $DesktopDir 'CallBridge.Desktop.csproj'
+$ServiceExe = Join-Path $Root 'publish\service\CallBridge.Service.exe'
+$ServiceDll = Join-Path $Root 'publish\service\CallBridge.Service.dll'
+$ServiceProject = Join-Path $ServiceDir 'CallBridge.Service.csproj'
+$RuntimeRoot = Join-Path $env:LOCALAPPDATA 'IT Health Technologies\CallBridge'
+$DataDir = Join-Path $RuntimeRoot 'data'
+$LogDir = Join-Path $RuntimeRoot 'logs'
+$HealthUrl = "http://127.0.0.1:$Port/health"
+
+function New-SessionToken {
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    return [Convert]::ToBase64String($bytes)
+}
+
+function Get-PortOwners {
+    Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+}
+
+function Get-OwnedServiceProcess {
+    foreach ($processId in @(Get-PortOwners)) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+        if (-not $process) { continue }
+
+        $isPublishedService = $process.Name -ieq 'CallBridge.Service.exe' -and
+            $process.ExecutablePath -and
+            [IO.Path]::GetFullPath($process.ExecutablePath) -ieq [IO.Path]::GetFullPath($ServiceExe)
+        $isDevelopmentService = $process.Name -ieq 'dotnet.exe' -and $process.CommandLine -and
+            ($process.CommandLine.IndexOf($ServiceProject, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+             $process.CommandLine.IndexOf($ServiceDll, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+
+        if ($isPublishedService -or $isDevelopmentService) { $process }
     }
 }
 
-function Test-CallBridgeHealth {
+function Stop-OwnedOrphan {
+    foreach ($process in @(Get-OwnedServiceProcess)) {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-Health {
     try {
         $response = Invoke-RestMethod -Uri $HealthUrl -TimeoutSec 2
         return $response.ok -eq $true
-    } catch {
-        return $false
-    }
+    } catch { return $false }
 }
 
-function Start-Backend {
-    if (-not $BackendDir) { return }
+if (-not (Test-Path -LiteralPath $ServiceProject)) { throw "CallBridge Service was not found at $ServiceProject" }
+if (-not (Test-Path -LiteralPath $DesktopProject)) { throw "CallBridge Desktop was not found at $DesktopProject" }
 
-    $node = Get-Command node.exe -ErrorAction SilentlyContinue
-    if (-not $node) { return }
-
-    New-Item -ItemType Directory -Path $BackendLogDir -Force | Out-Null
-    return Start-Process -FilePath $node.Source `
-        -ArgumentList @('apps/service/src/server.js') `
-        -WorkingDirectory $BackendDir.Path `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $BackendLog `
-        -RedirectStandardError (Join-Path $BackendLogDir 'callbridge-internal.err.log') `
-        -PassThru
+New-Item -ItemType Directory -Path $DataDir, $LogDir -Force | Out-Null
+Stop-OwnedOrphan
+if (@(Get-PortOwners).Count -gt 0) {
+    throw "Port $Port is being used by another application. CallBridge will not terminate an unrelated process."
 }
 
-function Stop-PortOwner {
-    Get-NetTCPConnection -LocalPort 8787 -State Listen -ErrorAction SilentlyContinue |
-        Select-Object -ExpandProperty OwningProcess -Unique |
-        ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+$dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
+if ((-not (Test-Path -LiteralPath $ServiceExe) -or -not (Test-Path -LiteralPath $DesktopExe)) -and -not $dotnet) {
+    throw '.NET 8 is required when published CallBridge executables are not present.'
 }
 
-$backendProcess = $null
+$env:CALLBRIDGE_LOCAL_TOKEN = New-SessionToken
+$env:CALLBRIDGE_CALL_RETENTION_DAYS = [string]$CallRetentionDays
+$env:PORT = [string]$Port
+$env:DATABASE_PATH = Join-Path $DataDir 'callbridge.db'
+
+$serviceProcess = $null
 try {
-    if (Test-CallBridgePort) { Stop-PortOwner; Start-Sleep -Milliseconds 500 }
-    $backendProcess = Start-Backend
-    $deadline = (Get-Date).AddSeconds(8)
-    while ((Get-Date) -lt $deadline -and -not (Test-CallBridgeHealth)) { Start-Sleep -Milliseconds 350 }
-    if (-not (Test-CallBridgeHealth)) { throw 'CallBridge Internal did not start. Check the logs folder.' }
+    if (Test-Path -LiteralPath $ServiceExe) {
+        $serviceProcess = Start-Process -FilePath $ServiceExe `
+            -WorkingDirectory (Split-Path -Parent $ServiceExe) `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $LogDir 'callbridge-service.log') `
+            -RedirectStandardError (Join-Path $LogDir 'callbridge-service.err.log') `
+            -PassThru
+    } else {
+        $serviceProcess = Start-Process -FilePath $dotnet.Source `
+            -ArgumentList @('run', '--project', ('"{0}"' -f $ServiceProject), '--configuration', 'Release', '--no-launch-profile') `
+            -WorkingDirectory $ServiceDir `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $LogDir 'callbridge-service.log') `
+            -RedirectStandardError (Join-Path $LogDir 'callbridge-service.err.log') `
+            -PassThru
+    }
 
-    if (Test-Path -LiteralPath $ExePath) {
-        Start-Process -FilePath $ExePath -WorkingDirectory (Split-Path -Parent $ExePath) -Wait
-    } elseif (Test-Path -LiteralPath $ProjectPath) {
-        Start-Process -FilePath 'dotnet' -ArgumentList @('run', '--project', $ProjectPath, '--configuration', 'Release') -WorkingDirectory $AppDir -Wait
-    } else { throw 'CallBridge desktop executable was not found.' }
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline -and -not (Test-Health)) {
+        if ($serviceProcess.HasExited) { break }
+        Start-Sleep -Milliseconds 250
+    }
+    if (-not (Test-Health)) { throw "CallBridge Service did not start. Review $LogDir" }
+
+    if (Test-Path -LiteralPath $DesktopExe) {
+        Start-Process -FilePath $DesktopExe -WorkingDirectory (Split-Path -Parent $DesktopExe) -Wait
+    } else {
+        Start-Process -FilePath $dotnet.Source `
+            -ArgumentList @('run', '--project', ('"{0}"' -f $DesktopProject), '--configuration', 'Release', '--no-launch-profile') `
+            -WorkingDirectory $DesktopDir `
+            -Wait
+    }
 } finally {
-    if ($backendProcess) { Stop-Process -Id $backendProcess.Id -Force -ErrorAction SilentlyContinue }
-    Stop-PortOwner
+    if ($serviceProcess -and -not $serviceProcess.HasExited) {
+        Stop-Process -Id $serviceProcess.Id -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $serviceProcess.Id -Timeout 5 -ErrorAction SilentlyContinue
+    }
+    Remove-Item Env:CALLBRIDGE_LOCAL_TOKEN -ErrorAction SilentlyContinue
+    Remove-Item Env:CALLBRIDGE_CALL_RETENTION_DAYS -ErrorAction SilentlyContinue
+    Remove-Item Env:PORT -ErrorAction SilentlyContinue
+    Remove-Item Env:DATABASE_PATH -ErrorAction SilentlyContinue
 }

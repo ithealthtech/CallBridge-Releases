@@ -79,6 +79,12 @@ public sealed class ConnectWisePlatformClient : IDisposable
 
     public async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
     {
+        if (request.RequestUri is null) throw new ArgumentException("A ConnectWise Platform request URI is required.", nameof(request));
+        var target = request.RequestUri.IsAbsoluteUri ? request.RequestUri : new Uri(new Uri(_baseUrl + "/"), request.RequestUri);
+        if (!string.Equals(target.GetLeftPart(UriPartial.Authority), _baseUrl, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("ConnectWise Platform credentials cannot be sent to a different origin.");
+        request.RequestUri = target;
+
         if (RateLimits.TryGetValue(_cacheKey, out var known)
             && known.Remaining == 0
             && known.ResetAt is { } resetAt

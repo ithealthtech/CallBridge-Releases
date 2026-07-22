@@ -1,7 +1,7 @@
-<Window x:Class="CallBridge.Desktop.MainWindow"
+﻿<Window x:Class="CallBridge.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CallBridge" Height="760" Width="1160" MinHeight="680" MinWidth="980"
+        Title="CallBridge" Height="760" Width="1160" MinHeight="600" MinWidth="760"
         WindowStartupLocation="CenterScreen" Background="#EDF6F8" Foreground="#16202A"
         FontFamily="Segoe UI">
     <Window.Resources>
@@ -25,7 +25,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -49,8 +49,7 @@
             <Setter Property="Margin" Value="0,3"/>
         </Style>
         <Style x:Key="DialButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Width" Value="82"/>
-            <Setter Property="Height" Value="60"/>
+            <Setter Property="MinWidth" Value="62"/>
             <Setter Property="Margin" Value="5"/>
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="Background" Value="#F7FCFD"/>
@@ -83,7 +82,7 @@
             </Setter>
         </Style>
         <DataTemplate x:Key="RowItemTemplate">
-            <Border BorderBrush="#D8E8EE" BorderThickness="1" CornerRadius="16" Padding="15" MinHeight="66">
+            <Border BorderBrush="#D8E8EE" BorderThickness="1" CornerRadius="8" Padding="15" MinHeight="66">
                 <Border.Background>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                         <GradientStop Color="#FFFFFF" Offset="0"/>
@@ -94,9 +93,9 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="42"/>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="92"/>
+                        <ColumnDefinition Width="Auto" MinWidth="72"/>
                     </Grid.ColumnDefinitions>
-                    <Border Width="34" Height="34" CornerRadius="12" BorderBrush="#A9DAE1" BorderThickness="1">
+                    <Border Width="34" Height="34" CornerRadius="8" BorderBrush="#A9DAE1" BorderThickness="1">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="#E6F9F7" Offset="0"/>
@@ -106,17 +105,17 @@
                         <TextBlock Text="&#xE717;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource Brand}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource Ink}"/>
-                        <TextBlock Text="{Binding Detail}" FontSize="10.5" Foreground="{StaticResource Muted}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Detail}" FontSize="10.5" Foreground="{StaticResource Muted}" Margin="0,4,8,0" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
-                    <TextBlock Grid.Column="2" Text="{Binding Action}" Foreground="{StaticResource Brand}" FontWeight="SemiBold" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Action}" Foreground="{StaticResource Brand}" FontWeight="SemiBold" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                 </Grid>
             </Border>
         </DataTemplate>
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="226"/>
+            <ColumnDefinition x:Name="SidebarColumn" Width="226" MinWidth="74"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Border BorderBrush="#CFE0E8" BorderThickness="0,0,1,0">
@@ -127,15 +126,15 @@
                     <GradientStop Color="#EEF7FA" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
-            <Grid Margin="18">
+            <Grid x:Name="SidebarRoot" Margin="18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <StackPanel Margin="0,6,0,26">
-                    <Border CornerRadius="18" BorderBrush="#9BD4DD" BorderThickness="1" Padding="12">
+                <StackPanel x:Name="BrandBlock" Margin="0,6,0,20">
+                    <Border CornerRadius="8" BorderBrush="#9BD4DD" BorderThickness="1" Padding="12">
                         <Border.Background>
                             <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                                 <GradientStop Color="#FFFFFF" Offset="0"/>
@@ -151,7 +150,7 @@
                         <TextBlock x:Name="BrandSubtitle" Text="IT HEALTH TECHNOLOGIES" Foreground="{StaticResource Muted}" FontSize="9" Margin="0,4,0,0"/>
                     </StackPanel>
                 </StackPanel>
-                <Border Grid.Row="1" BorderBrush="#C7E2E8" BorderThickness="1" CornerRadius="16" Padding="13" Margin="0,0,0,18">
+                <Border Grid.Row="1" BorderBrush="#C7E2E8" BorderThickness="1" CornerRadius="8" Padding="13" Margin="0,0,0,18">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                             <GradientStop Color="#EEFBF8" Offset="0"/>
@@ -160,31 +159,33 @@
                     </Border.Background>
                     <StackPanel Orientation="Horizontal">
                         <Ellipse x:Name="PresenceDot" Width="9" Height="9" Fill="{StaticResource Accent}" Margin="0,4,9,0"/>
-                        <StackPanel>
+                        <StackPanel x:Name="PresenceDetails">
                             <TextBlock x:Name="PresenceText" Text="Available" FontWeight="SemiBold" FontSize="12"/>
                             <TextBlock x:Name="ExtensionText" Text="Extension 201" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,3,0,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
-                <StackPanel Grid.Row="2">
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="NavStack">
                     <Button x:Name="DashboardButton" Style="{StaticResource NavButton}" Content="Dashboard"/>
                     <Button x:Name="PhoneButton" Style="{StaticResource NavButton}" Content="Phone"/>
                     <Button x:Name="ContactsButton" Style="{StaticResource NavButton}" Content="Contacts"/>
                     <Button x:Name="HistoryButton" Style="{StaticResource NavButton}" Content="Call history"/>
+                    <Button x:Name="MspButton" Style="{StaticResource NavButton}" Content="MSP actions"/>
                     <Button x:Name="MessagesButton" Style="{StaticResource NavButton}" Content="Messages"/>
                     <Button x:Name="VoicemailButton" Style="{StaticResource NavButton}" Content="Voicemail"/>
                     <Button x:Name="ParkingButton" Style="{StaticResource NavButton}" Content="Parking"/>
                     <Button x:Name="RecordingsButton" Style="{StaticResource NavButton}" Content="Recordings"/>
-                    <Button x:Name="MspButton" Style="{StaticResource NavButton}" Content="MSP actions"/>
                     <Button x:Name="SettingsButton" Style="{StaticResource NavButton}" Content="Settings"/>
-                </StackPanel>
-                <StackPanel Grid.Row="3">
+                    </StackPanel>
+                </ScrollViewer>
+                <StackPanel x:Name="SidebarStatus" Grid.Row="3">
                     <TextBlock Text="PHONE STATUS" Foreground="{StaticResource Muted}" FontSize="9"/>
                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                         <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#DFAE4B" Margin="0,4,8,0"/>
                         <TextBlock x:Name="StatusText" Text="Checking" Foreground="{StaticResource Muted}" FontSize="11"/>
                     </StackPanel>
-                    <TextBlock Text="CallBridge v0.6.5" Foreground="#8795A2" FontSize="10" Margin="0,16,0,0"/>
+                    <TextBlock x:Name="VersionText" Text="CallBridge" Foreground="#8795A2" FontSize="10" Margin="0,16,0,0"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -206,18 +207,13 @@
                         <TextBlock x:Name="PageTitle" Text="Phone" FontWeight="SemiBold" FontSize="16"/>
                         <TextBlock Text="White-label voice control center" Foreground="{StaticResource Muted}" FontSize="10" Margin="0,3,0,0"/>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <ComboBox x:Name="ProviderBox" Width="176" Height="34"/>
-                        <Button x:Name="RegisterButton" Content="Register" Margin="10,0,0,0"/>
-                    </StackPanel>
+                    <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center"><ComboBox x:Name="ProviderBox" Width="176" MinWidth="150" Height="34" Margin="0,0,10,0"/><Button x:Name="RegisterButton" Content="Register"/></WrapPanel>
                 </Grid>
             </Border>
-            <Grid Grid.Row="1" Margin="30">
+            <Grid x:Name="ContentHost" Grid.Row="1" Margin="30">
                 <Grid x:Name="PhoneView">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="360"/>
-                        <ColumnDefinition Width="22"/>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition x:Name="DialerColumn" Width="360" MinWidth="280"/><ColumnDefinition x:Name="PhoneGapColumn" Width="22"/><ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Border Style="{StaticResource PanelBorder}" Padding="24">
                         <Grid>
@@ -228,7 +224,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <Border BorderBrush="#C7E5E9" BorderThickness="1" CornerRadius="15" Padding="11">
+                            <Border BorderBrush="#C7E5E9" BorderThickness="1" CornerRadius="8" Padding="11">
                                 <Border.Background>
                                     <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                                         <GradientStop Color="#EAFBF7" Offset="0"/>
@@ -318,7 +314,7 @@
                             <TextBlock x:Name="ListHeading" Text="Contacts" FontSize="30" FontWeight="SemiBold"/>
                             <TextBlock x:Name="ListSubheading" Text="People and extensions" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
                         </StackPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" MaxWidth="760">
                             <Button x:Name="SyncConnectWiseButton" Content="Sync ConnectWise" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="OpenCompanyButton" Content="Open company" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="CreateTicketButton" Content="New ticket" Padding="14,8" Margin="0,0,8,0"/>
@@ -330,8 +326,7 @@
                             <Button x:Name="ImportContactsButton" Content="Import CSV" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="ClearContactsButton" Content="Clear imports" Padding="14,8" Margin="0,0,8,0"/>
                             <Button x:Name="RefreshRowsButton" Content="Refresh" Padding="14,8" Margin="0,0,12,0"/>
-                            <TextBox x:Name="SearchBox" Width="240" Height="38" VerticalAlignment="Center"/>
-                        </StackPanel>
+                            <TextBox x:Name="SearchBox" Width="240" Height="38" VerticalAlignment="Center"/></WrapPanel>
                     </DockPanel>
                     <Border Grid.Row="2" Style="{StaticResource PanelBorder}" Padding="18">
                         <ListBox x:Name="RowsList" BorderThickness="0" Background="Transparent" ItemTemplate="{StaticResource RowItemTemplate}" ItemContainerStyle="{StaticResource SoftListItem}"/>
@@ -341,3 +336,7 @@
         </Grid>
     </Grid>
 </Window>
+
+
+
+

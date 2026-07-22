@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore locked dependencies
+        run: dotnet restore .\CallBridge.sln --locked-mode
+      - name: Build
+        run: dotnet build .\CallBridge.sln -c Release --no-restore
+      - name: Service integration and security tests
+        run: dotnet test .\tests\CallBridge.Service.Tests\CallBridge.Service.Tests.csproj -c Release --no-build
+      - name: Credential protection smoke test
+        run: dotnet run --project .\src\CallBridge.Desktop\tests\CredentialSmokeTest.csproj -c Release
+      - name: ConnectWise contract smoke test
+        run: dotnet run --project .\src\CallBridge.Desktop\tests\ConnectWiseSmoke\ConnectWiseSmoke.csproj -c Release
+      - name: SIP media smoke test
+        run: dotnet run --project .\src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.csproj -c Release

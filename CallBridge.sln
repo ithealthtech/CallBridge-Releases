@@ -1,0 +1,64 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B6BAA105-9415-4556-BB71-E29A3E9E9F0E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CallBridge.Desktop", "src\CallBridge.Desktop\CallBridge.Desktop.csproj", "{175C30B7-6282-42C6-BDA2-EB22CC220BBA}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{F3FF3250-DDB9-43DA-BE38-A9967BE19150}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CredentialSmokeTest", "src\CallBridge.Desktop\tests\CredentialSmokeTest.csproj", "{117477EF-FB44-42C6-AB24-750B7360A466}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConnectWiseSmoke", "src\CallBridge.Desktop\tests\ConnectWiseSmoke\ConnectWiseSmoke.csproj", "{3E3CBE60-F029-4A1D-A74F-2F592167AB69}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SipMediaSmoke", "src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.csproj", "{75DB1836-3911-420F-9131-D430F992174B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CallBridge.Service", "src\CallBridge.Service\CallBridge.Service.csproj", "{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CallBridge.Service.Tests", "tests\CallBridge.Service.Tests\CallBridge.Service.Tests.csproj", "{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{175C30B7-6282-42C6-BDA2-EB22CC220BBA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{175C30B7-6282-42C6-BDA2-EB22CC220BBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{175C30B7-6282-42C6-BDA2-EB22CC220BBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{175C30B7-6282-42C6-BDA2-EB22CC220BBA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{117477EF-FB44-42C6-AB24-750B7360A466}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{117477EF-FB44-42C6-AB24-750B7360A466}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{117477EF-FB44-42C6-AB24-750B7360A466}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{117477EF-FB44-42C6-AB24-750B7360A466}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3E3CBE60-F029-4A1D-A74F-2F592167AB69}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E3CBE60-F029-4A1D-A74F-2F592167AB69}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E3CBE60-F029-4A1D-A74F-2F592167AB69}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E3CBE60-F029-4A1D-A74F-2F592167AB69}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75DB1836-3911-420F-9131-D430F992174B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75DB1836-3911-420F-9131-D430F992174B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75DB1836-3911-420F-9131-D430F992174B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75DB1836-3911-420F-9131-D430F992174B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{175C30B7-6282-42C6-BDA2-EB22CC220BBA} = {B6BAA105-9415-4556-BB71-E29A3E9E9F0E}
+		{117477EF-FB44-42C6-AB24-750B7360A466} = {F3FF3250-DDB9-43DA-BE38-A9967BE19150}
+		{3E3CBE60-F029-4A1D-A74F-2F592167AB69} = {F3FF3250-DDB9-43DA-BE38-A9967BE19150}
+		{75DB1836-3911-420F-9131-D430F992174B} = {F3FF3250-DDB9-43DA-BE38-A9967BE19150}
+		{10BA6A03-653C-49D0-9B2F-EEFDF7F8C30E} = {B6BAA105-9415-4556-BB71-E29A3E9E9F0E}
+		{CD02DA1A-5A0F-4E42-A50A-C843081CA1F7} = {F3FF3250-DDB9-43DA-BE38-A9967BE19150}
+	EndGlobalSection
+EndGlobal
