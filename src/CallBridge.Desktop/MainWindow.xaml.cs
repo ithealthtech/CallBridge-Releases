@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -23,6 +24,7 @@ public partial class MainWindow : Window
     private readonly string _settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IT Health Technologies", "CallBridge", "settings.json");
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private AppSettings _settings = new();
+    private Process? _localServiceProcess;
     private string? _activeCallId;
     private bool _registered;
     private bool _muted;
@@ -36,7 +38,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         LoadSettings();
-        var localToken = Environment.GetEnvironmentVariable("CALLBRIDGE_LOCAL_TOKEN");
+        var localToken = EnsureLocalService();
         if (!string.IsNullOrWhiteSpace(localToken))
             _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", localToken);
         ApplyTemplates();
@@ -63,7 +65,53 @@ public partial class MainWindow : Window
                 EndLocalCall("READY");
             }
         });
-        Closed += (_, _) => { _statusTimer.Stop(); _http.Dispose(); _ = _sip.DisposeAsync(); };
+        Closed += (_, _) =>
+        {
+            _statusTimer.Stop();
+            if (_localServiceProcess is { HasExited: false }) _localServiceProcess.Kill(true);
+            _localServiceProcess?.Dispose();
+            _http.Dispose();
+            _ = _sip.DisposeAsync();
+        };
+    }
+
+    private string? EnsureLocalService()
+    {
+        var localToken = Environment.GetEnvironmentVariable("CALLBRIDGE_LOCAL_TOKEN");
+        if (!string.IsNullOrWhiteSpace(localToken)) return localToken;
+
+        var servicePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "service", "CallBridge.Service.exe"));
+        if (!File.Exists(servicePath)) return null;
+
+        var token = NewSessionToken();
+        var runtimeRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "IT Health Technologies", "CallBridge");
+        var dataDir = Path.Combine(runtimeRoot, "data");
+        var logDir = Path.Combine(runtimeRoot, "logs");
+        Directory.CreateDirectory(dataDir);
+        Directory.CreateDirectory(logDir);
+
+        var startInfo = new ProcessStartInfo(servicePath)
+        {
+            WorkingDirectory = Path.GetDirectoryName(servicePath)!,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.Environment["CALLBRIDGE_LOCAL_TOKEN"] = token;
+        startInfo.Environment["CALLBRIDGE_CALL_RETENTION_DAYS"] = "90";
+        startInfo.Environment["PORT"] = "8787";
+        startInfo.Environment["DATABASE_PATH"] = Path.Combine(dataDir, "callbridge.db");
+        _localServiceProcess = Process.Start(startInfo);
+        return token;
+    }
+
+    private static string NewSessionToken()
+    {
+        Span<byte> bytes = stackalloc byte[32];
+        RandomNumberGenerator.Fill(bytes);
+        return Convert.ToBase64String(bytes);
     }
 
     private void WireEvents()

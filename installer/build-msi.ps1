@@ -129,13 +129,11 @@ if (-not $SkipPublish) {
     dotnet publish $DesktopProject -c $Configuration -o (Join-Path $PayloadRoot "publish\desktop") --self-contained false --no-restore -p:Version=$Version
     if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed." }
 
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot "Start-CallBridge.ps1") -Destination $PayloadRoot -Force
-    Copy-Item -LiteralPath (Join-Path $ProjectRoot "run-callbridge.cmd") -Destination $PayloadRoot -Force
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $PayloadRoot -Force
 }
 
-if (-not (Test-Path -LiteralPath (Join-Path $PayloadRoot "run-callbridge.cmd"))) {
-    throw "MSI payload is missing run-callbridge.cmd."
+if (-not (Test-Path -LiteralPath (Join-Path $PayloadRoot "publish\desktop\CallBridge.Desktop.exe"))) {
+    throw "MSI payload is missing CallBridge.Desktop.exe."
 }
 
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
@@ -171,7 +169,7 @@ $($directoryXml -join [Environment]::NewLine)
 
     <DirectoryRef Id="ApplicationProgramsFolder">
       <Component Id="StartMenuShortcutComponent" Guid="*">
-        <Shortcut Id="StartMenuShortcut" Name="CallBridge" Target="[INSTALLFOLDER]run-callbridge.cmd" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="StartMenuShortcut" Name="CallBridge" Target="[INSTALLFOLDER]publish\desktop\CallBridge.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
         <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue Root="HKLM" Key="Software\IT Health Technologies\CallBridge" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
@@ -179,7 +177,7 @@ $($directoryXml -join [Environment]::NewLine)
 
     <DirectoryRef Id="DesktopFolder">
       <Component Id="DesktopShortcutComponent" Guid="*">
-        <Shortcut Id="DesktopShortcut" Name="CallBridge" Target="[INSTALLFOLDER]run-callbridge.cmd" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="DesktopShortcut" Name="CallBridge" Target="[INSTALLFOLDER]publish\desktop\CallBridge.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKLM" Key="Software\IT Health Technologies\CallBridge" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </DirectoryRef>
