@@ -333,11 +333,11 @@ public partial class MainWindow : Window
     private void ApplyResponsiveLayout()
     {
         var compact = ActualWidth > 0 && ActualWidth < 940;
-        SidebarColumn.Width = new GridLength(compact ? 68 : 226);
+        SidebarColumn.Width = new GridLength(compact ? 68 : 248);
         SidebarRoot.Margin = compact ? new Thickness(10) : new Thickness(18);
         BrandBlock.Margin = compact ? new Thickness(0, 4, 0, 12) : new Thickness(0, 6, 0, 20);
         ContentHost.Margin = compact ? new Thickness(18) : new Thickness(30);
-        DialerColumn.Width = new GridLength(compact ? 300 : 360);
+        DialerColumn.Width = new GridLength(compact ? 300 : 376);
         PhoneGapColumn.Width = new GridLength(compact ? 14 : 22);
 
         foreach (var button in new[] { DashboardButton, PhoneButton, ContactsButton, HistoryButton, MspButton, MessagesButton, SettingsButton })
