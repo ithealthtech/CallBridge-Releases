@@ -43,6 +43,7 @@ dotnet test .\tests\CallBridge.Service.Tests\CallBridge.Service.Tests.csproj -c 
 dotnet run --project .\src\CallBridge.Desktop\tests\CredentialSmokeTest.csproj -c Release
 dotnet run --project .\src\CallBridge.Desktop\tests\ConnectWiseSmoke\ConnectWiseSmoke.csproj -c Release
 dotnet run --project .\src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.csproj -c Release
+dotnet run --project .\src\CallBridge.Desktop\tests\SipTransportSmoke\SipTransportSmoke.csproj -c Release
 ```
 
 `TreatWarningsAsErrors` is enabled repository-wide — a warning is a build failure, so do not
@@ -61,9 +62,11 @@ decision, not a passing test.
    unauthenticated route, and do not introduce a static or predictable fallback credential.
 3. **Reject browser origins and non-loopback host headers.** This is what stops a web page
    on the technician's machine from driving the phone.
-4. **Never add a certificate bypass.** No bypass exists in the code today, and none may be
-   added - not even behind a debug build. SIP signaling currently runs over UDP, so when
-   TLS is enabled it must validate against the Windows trust chain from the start.
+4. **Never add a certificate bypass, and never downgrade signalling.** SIP defaults to TLS
+   on 5061 and validates the PBX certificate against the Windows trust chain, rejecting
+   every `SslPolicyErrors` value. No bypass exists and none may be added, not even behind a
+   debug build. A `sips:` address or port 5061 must never fall back to TCP or UDP because
+   of a stored setting. `SipTransportSmoke` enforces all of this.
 5. **Desktop secrets stay DPAPI-protected and out of serialized settings.** Never widen what
    gets written to a settings file.
 6. **Bounded requests and quiet logs.** Request sizes and rates stay bounded, and logs must

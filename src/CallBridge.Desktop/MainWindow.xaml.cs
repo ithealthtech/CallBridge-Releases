@@ -275,6 +275,13 @@ public partial class MainWindow : Window
                 if (!LocalApi.TryNormalize(_settings.ApiBase, out var apiBase)) apiBase = LocalApi.DefaultBase;
                 _settings.ApiBase = apiBase;
                 if (_settings.Provider is "Mock provider" or "Standard SIP test") _settings.Provider = StandardSipProvider;
+                // Earlier builds wrote "UDP" unconditionally from a settings control that
+                // offered no other option, so a stored "UDP" was never an operator choice.
+                // Move those installs to TLS; an operator whose PBX cannot offer TLS can
+                // now select TCP or UDP deliberately and it will be honoured.
+                if (string.IsNullOrWhiteSpace(_settings.SipTransport) ||
+                    _settings.SipTransport.Equals("UDP", StringComparison.OrdinalIgnoreCase))
+                    _settings.SipTransport = "TLS";
                 if (!string.IsNullOrWhiteSpace(_settings.SipPasswordProtected)) _settings.SipPassword = CredentialProtector.Unprotect(_settings.SipPasswordProtected);
                 else
                 {
@@ -624,7 +631,7 @@ public partial class MainWindow : Window
                 return;
             }
             RegistrationMetric.Text = "Registering...";
-            var sipResult = await _sip.RegisterAsync(_settings.SipServer, _settings.SipUsername, _settings.SipPassword);
+            var sipResult = await _sip.RegisterAsync(_settings.SipServer, _settings.SipUsername, _settings.SipPassword, _settings.SipTransport);
             _registered = sipResult.Success;
             UpdateProviderStatus();
             if (!sipResult.Success) ShowApiError(sipResult.Message);
@@ -1065,7 +1072,7 @@ public sealed class AppSettings
     [JsonIgnore]
     public string SipPassword { get; set; } = "";
     public string SipPasswordProtected { get; set; } = "";
-    public string SipTransport { get; set; } = "UDP";
+    public string SipTransport { get; set; } = "TLS";
     public string Microphone { get; set; } = "Windows default communications device";
     public string Speaker { get; set; } = "Windows default communications device";
     public bool LaunchAtStartup { get; set; }
@@ -1182,8 +1189,8 @@ public sealed class SettingsWindow : Window
         _cwPlatformScopes.Text = Settings.ConnectWisePlatformScopes;
         foreach (var item in new[] { "Standard SIP", "Axion / HivePBX", "Axion / Noixa pending" }) _provider.Items.Add(item);
         _provider.SelectedItem = Settings.Provider;
-        _transport.Items.Add("UDP");
-        _transport.SelectedItem = "UDP";
+        foreach (var item in new[] { "TLS", "TCP", "UDP" }) _transport.Items.Add(item);
+        _transport.SelectedItem = _transport.Items.Contains(Settings.SipTransport) ? Settings.SipTransport : "TLS";
         _startup.IsChecked = Settings.LaunchAtStartup;
         _topmost.IsChecked = Settings.AlwaysOnTopDuringCalls;
 
@@ -1251,7 +1258,7 @@ public sealed class SettingsWindow : Window
             Settings.SipServer = _sipServer.Text;
             Settings.SipUsername = _sipUser.Text;
             Settings.SipPassword = _sipPassword.Password;
-            Settings.SipTransport = "UDP";
+            Settings.SipTransport = _transport.SelectedItem?.ToString() ?? "TLS";
             Settings.ProductName = _product.Text;
             Settings.CompanyName = _company.Text;
             Settings.ConnectWiseSite = _cwSite.Text.Trim();

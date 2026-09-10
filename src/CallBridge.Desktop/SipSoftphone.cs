@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using SIPSorcery.Media;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
@@ -9,8 +12,22 @@ namespace CallBridge.Desktop;
 
 public sealed record SipOperationResult(bool Success, string Message);
 
+/// <summary>
+/// SIP signalling transport. TLS is the default; the others exist only for PBXs that
+/// cannot offer it, and both send credentials and signalling in the clear.
+/// </summary>
+public enum SipTransportMode
+{
+    Tls,
+    Tcp,
+    Udp
+}
+
 public sealed class SipSoftphone : IAsyncDisposable
 {
+    private const int DefaultTlsPort = 5061;
+    private const int DefaultPlaintextPort = 5060;
+
     private SIPTransport? _transport;
     private SIPRegistrationUserAgent? _registration;
     private SIPUserAgent? _userAgent;
@@ -19,22 +36,45 @@ public sealed class SipSoftphone : IAsyncDisposable
     private string _server = "";
     private string _username = "";
     private string _password = "";
+    private string _scheme = "sips";
+
+    /// <summary>Transport negotiated for the current registration.</summary>
+    public SipTransportMode Transport { get; private set; } = SipTransportMode.Tls;
+
+    /// <summary>True when SIP signalling for the current registration is TLS-protected.</summary>
+    public bool IsSignallingEncrypted => Transport == SipTransportMode.Tls;
 
     public bool IsRegistered { get; private set; }
     public bool IsCallActive => _userAgent?.IsCallActive == true;
     public event Action<string>? RegistrationStateChanged;
     public event Action<string>? CallStateChanged;
 
-    public async Task<SipOperationResult> RegisterAsync(string server, string username, string password)
+    public async Task<SipOperationResult> RegisterAsync(string server, string username, string password, string transport = "TLS")
     {
         if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
             return new(false, "SIP server, username, and password are required.");
 
         await ShutdownAsync();
-        _server = NormalizeServer(server);
+
+        var (host, port, mode) = ParseServer(server, ParseTransport(transport));
+        Transport = mode;
+        _server = host;
+        _scheme = mode == SipTransportMode.Tls ? "sips" : "sip";
         _username = username.Trim();
         _password = password;
+
         _transport = new SIPTransport();
+        try
+        {
+            _transport.AddSIPChannel(CreateChannel(mode));
+        }
+        catch (Exception ex)
+        {
+            await ShutdownAsync();
+            return new(false, $"Could not open a {Describe(mode)} SIP channel: {ex.Message}");
+        }
+
+        var registrar = BuildRegistrarUri(host, port, mode);
         _userAgent = new SIPUserAgent(_transport, null, true);
         _userAgent.OnCallHungup += dialogue => { CallStateChanged?.Invoke("ended"); _ = CloseMediaAsync(); };
         _userAgent.ClientCallTrying += (_, _) => CallStateChanged?.Invoke("trying");
@@ -43,7 +83,7 @@ public sealed class SipSoftphone : IAsyncDisposable
         _userAgent.ClientCallFailed += (_, error, _) => CallStateChanged?.Invoke($"failed: {error}");
 
         var completion = new TaskCompletionSource<SipOperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _registration = new SIPRegistrationUserAgent(_transport, _username, _password, _server, 300);
+        _registration = new SIPRegistrationUserAgent(_transport, _username, _password, registrar, 300);
         _registration.RegistrationSuccessful += (_, _) =>
         {
             IsRegistered = true;
@@ -61,7 +101,13 @@ public sealed class SipSoftphone : IAsyncDisposable
         _registration.Start();
 
         try { return await completion.Task.WaitAsync(TimeSpan.FromSeconds(20)); }
-        catch (TimeoutException) { return new(false, "SIP registration timed out. Verify the server, account, firewall, and transport requirements."); }
+        catch (TimeoutException)
+        {
+            var hint = Transport == SipTransportMode.Tls
+                ? " The account is set to TLS: confirm the PBX accepts TLS on port 5061 and that its certificate is valid for the configured server name and trusted by this machine."
+                : " Signalling is not encrypted on this transport; prefer TLS where the PBX supports it.";
+            return new(false, $"SIP registration timed out. Verify the server, account, firewall, and transport requirements.{hint}");
+        }
     }
 
     public async Task UnregisterAsync()
@@ -81,8 +127,7 @@ public sealed class SipSoftphone : IAsyncDisposable
         {
             _audio = new WindowsAudioEndPoint(new AudioEncoder());
             _media = CreateMediaSession(_audio);
-            var target = destination.Contains('@') ? destination : $"{destination}@{_server}";
-            if (!target.StartsWith("sip:", StringComparison.OrdinalIgnoreCase) && !target.StartsWith("sips:", StringComparison.OrdinalIgnoreCase)) target = $"sip:{target}";
+            var target = BuildTarget(destination);
             CallStateChanged?.Invoke("dialing");
             var answered = await _userAgent.Call(target, _username, _password, _media, 30);
             return answered ? new(true, "Connected") : new(false, "The SIP server did not complete the call.");
@@ -126,8 +171,7 @@ public sealed class SipSoftphone : IAsyncDisposable
     public async Task<SipOperationResult> TransferAsync(string destination)
     {
         if (_userAgent?.IsCallActive != true) return new(false, "No active SIP call.");
-        var target = destination.Contains('@') ? destination : $"{destination}@{_server}";
-        if (!target.StartsWith("sip:", StringComparison.OrdinalIgnoreCase)) target = $"sip:{target}";
+        var target = BuildTarget(destination);
         var result = await _userAgent.BlindTransfer(SIPURI.ParseSIPURI(target), TimeSpan.FromSeconds(15), CancellationToken.None);
         return result ? new(true, "Transferred") : new(false, "The SIP transfer was rejected.");
     }
@@ -173,13 +217,89 @@ public sealed class SipSoftphone : IAsyncDisposable
         _registration = null; _userAgent = null; _transport = null; IsRegistered = false;
     }
 
-    private static string NormalizeServer(string value)
+    internal static SipTransportMode ParseTransport(string? value) => value?.Trim().ToUpperInvariant() switch
     {
-        var server = value.Trim();
-        if (server.StartsWith("sip:", StringComparison.OrdinalIgnoreCase)) server = server[4..];
-        if (server.StartsWith("sips:", StringComparison.OrdinalIgnoreCase)) server = server[5..];
-        return server.TrimEnd('/');
+        "UDP" => SipTransportMode.Udp,
+        "TCP" => SipTransportMode.Tcp,
+        _ => SipTransportMode.Tls
+    };
+
+    private static string Describe(SipTransportMode mode) => mode switch
+    {
+        SipTransportMode.Udp => "UDP",
+        SipTransportMode.Tcp => "TCP",
+        _ => "TLS"
+    };
+
+    /// <summary>
+    /// Splits a configured server into host, optional port, and transport. An explicit
+    /// <c>sips:</c> scheme or port 5061 always wins over the configured transport, so a
+    /// secure address can never be silently downgraded.
+    /// </summary>
+    internal static (string Host, int? Port, SipTransportMode Mode) ParseServer(string value, SipTransportMode configured)
+    {
+        var server = value.Trim().TrimEnd('/');
+        var mode = configured;
+
+        if (server.StartsWith("sips:", StringComparison.OrdinalIgnoreCase))
+        {
+            server = server[5..];
+            mode = SipTransportMode.Tls;
+        }
+        else if (server.StartsWith("sip:", StringComparison.OrdinalIgnoreCase))
+        {
+            server = server[4..];
+        }
+
+        // Strip any user part: a registrar address is a host, not an AOR.
+        var at = server.LastIndexOf('@');
+        if (at >= 0) server = server[(at + 1)..];
+
+        int? port = null;
+        var colon = server.LastIndexOf(':');
+        if (colon > 0 && server.IndexOf(']') < colon && int.TryParse(server[(colon + 1)..], out var parsed) && parsed is > 0 and <= 65535)
+        {
+            port = parsed;
+            server = server[..colon];
+        }
+
+        if (port == DefaultTlsPort) mode = SipTransportMode.Tls;
+
+        return (server.Trim(), port, mode);
     }
+
+    internal static string BuildRegistrarUri(string host, int? port, SipTransportMode mode) => mode switch
+    {
+        SipTransportMode.Tls => $"sips:{host}:{port ?? DefaultTlsPort}",
+        SipTransportMode.Tcp => $"sip:{host}:{port ?? DefaultPlaintextPort};transport=tcp",
+        _ => $"sip:{host}:{port ?? DefaultPlaintextPort}"
+    };
+
+    private string BuildTarget(string destination)
+    {
+        var target = destination.Trim();
+        if (target.StartsWith("sip:", StringComparison.OrdinalIgnoreCase) || target.StartsWith("sips:", StringComparison.OrdinalIgnoreCase))
+            return target;
+        if (!target.Contains('@')) target = $"{target}@{_server}";
+        return $"{_scheme}:{target}";
+    }
+
+    internal static SIPChannel CreateChannel(SipTransportMode mode) => mode switch
+    {
+        SipTransportMode.Tls => new SIPTLSChannel(new IPEndPoint(IPAddress.Any, 0), true, ValidateServerCertificate),
+        SipTransportMode.Tcp => new SIPTCPChannel(new IPEndPoint(IPAddress.Any, 0), true),
+        _ => new SIPUDPChannel(new IPEndPoint(IPAddress.Any, 0), true)
+    };
+
+    /// <summary>
+    /// Validates the PBX certificate against the Windows trust chain. Any policy error -
+    /// untrusted root, expired certificate, or a name that does not match the configured
+    /// server - fails the connection. There is deliberately no bypass, not even for
+    /// debug builds; a PBX with a self-signed certificate must have that certificate
+    /// installed in the machine trust store.
+    /// </summary>
+    private static bool ValidateServerCertificate(object sender, X509Certificate? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors)
+        => sslPolicyErrors == SslPolicyErrors.None;
 
     public async ValueTask DisposeAsync() => await ShutdownAsync();
 }

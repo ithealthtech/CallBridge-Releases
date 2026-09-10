@@ -65,10 +65,9 @@ control for an existing one.
   update verification remain open production gates — see
   [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md). Until that lands, verify
   builds out of band and treat distribution as unauthenticated.
-- **SIP signaling currently runs over UDP.** The desktop pins the transport to `UDP` when
-  settings are saved, and a `sips:` prefix is stripped before registration, so certificate
-  validation is not exercised on the configured path. Assume SIP credentials and signaling
-  are **not** TLS-protected today.
+- **Media is not encrypted.** TLS protects SIP *signalling* only. Call audio still travels
+  as plain RTP; SRTP is not implemented. Anyone who can capture the media path can
+  reconstruct call audio even when signalling is TLS.
 
 ## Operator and developer expectations
 
@@ -93,9 +92,11 @@ These are enforced properties, not preferences. See
 - All routes except `/health` require a random per-session bearer credential.
 - Browser origins and non-loopback host headers are rejected.
 - Request sizes and rates are bounded; logs omit sensitive payloads.
-- No certificate-bypass option exists anywhere in the code. When TLS SIP signaling is
-  enabled, validation must use the Windows trust chain; the configured transport is UDP
-  today, so that path is not yet exercised.
+- SIP signalling defaults to TLS on port 5061, and a `sips:` address or port 5061 is never
+  downgraded to a plaintext transport by a stale setting.
+- PBX certificates are validated against the Windows trust chain, rejecting every
+  `SslPolicyErrors` value including name mismatch, untrusted chain, and missing
+  certificate. **No certificate-bypass option exists anywhere in the code**, in any build.
 - Desktop secrets are DPAPI-protected and excluded from serialized settings.
 - Call history has configurable retention, authenticated export, and confirmed deletion.
 - Runtime databases and logs stay under the current user's local application-data

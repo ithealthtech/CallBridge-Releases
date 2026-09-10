@@ -43,7 +43,23 @@ dotnet test .\tests\CallBridge.Service.Tests\CallBridge.Service.Tests.csproj -c 
 dotnet run --project .\src\CallBridge.Desktop\tests\CredentialSmokeTest.csproj -c Release
 dotnet run --project .\src\CallBridge.Desktop\tests\ConnectWiseSmoke\ConnectWiseSmoke.csproj -c Release
 dotnet run --project .\src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.csproj -c Release
+dotnet run --project .\src\CallBridge.Desktop\tests\SipTransportSmoke\SipTransportSmoke.csproj -c Release
 ```
+
+## SIP transport
+
+SIP signalling defaults to **TLS on port 5061**, with the PBX certificate validated against
+the Windows trust chain. Choose the transport under **Settings → SIP transport**; TCP and
+UDP remain available for a PBX that cannot offer TLS, and both send credentials and
+signalling in the clear.
+
+A `sips:` address, or a server ending in `:5061`, always uses TLS regardless of the stored
+transport setting, so a secure address cannot be silently downgraded.
+
+If a PBX presents a self-signed certificate, install it in the machine trust store. There is
+no option to skip certificate validation.
+
+> TLS protects signalling only. Call audio is still plain RTP — SRTP is not implemented.
 
 ## Security posture
 
@@ -51,6 +67,7 @@ dotnet run --project .\src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.
 - All service routes other than `/health` require a random per-session bearer credential.
 - Browser origins and non-loopback host headers are rejected.
 - Request sizes and rates are bounded, and logs omit sensitive payloads.
+- SIP signalling defaults to TLS and validates the PBX certificate against the Windows trust chain, with no certificate-bypass option.
 - Desktop secrets are excluded from serialized settings and protected with Windows DPAPI.
 - Call history has configurable retention, authenticated export, and confirmed deletion.
 - Runtime databases and logs are stored under the current user's local application-data directory.
