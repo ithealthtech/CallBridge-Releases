@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ithealthtech/CallBridge/security/advisories/new
+    about: Report privately. Never open a public issue for a security defect.
+  - name: Security architecture
+    url: https://github.com/ithealthtech/CallBridge/blob/main/docs/SECURITY-ARCHITECTURE.md
+    about: Trust boundaries and deployment requirements.
