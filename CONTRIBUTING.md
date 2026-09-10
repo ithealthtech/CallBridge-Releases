@@ -61,8 +61,9 @@ decision, not a passing test.
    unauthenticated route, and do not introduce a static or predictable fallback credential.
 3. **Reject browser origins and non-loopback host headers.** This is what stops a web page
    on the technician's machine from driving the phone.
-4. **No certificate bypass for TLS SIP signaling.** Validation uses the Windows trust chain.
-   Do not add a "skip verification" switch, not even behind a debug build.
+4. **Never add a certificate bypass.** No bypass exists in the code today, and none may be
+   added - not even behind a debug build. SIP signaling currently runs over UDP, so when
+   TLS is enabled it must validate against the Windows trust chain from the start.
 5. **Desktop secrets stay DPAPI-protected and out of serialized settings.** Never widen what
    gets written to a settings file.
 6. **Bounded requests and quiet logs.** Request sizes and rates stay bounded, and logs must

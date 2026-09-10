@@ -23,6 +23,7 @@ Which of the seven rules in [CONTRIBUTING.md](../CONTRIBUTING.md) does this touc
 - [ ] Browser origins and non-loopback host headers are still rejected.
 - [ ] No certificate-bypass path was added for TLS SIP signaling.
 - [ ] Desktop secrets remain DPAPI-protected and excluded from serialized settings.
+- [ ] Request sizes and rates remain bounded.
 - [ ] Logs still omit telephone numbers, call content, contact data, and tokens.
 - [ ] Retention and confirmed deletion still remove data as configured.
 

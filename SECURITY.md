@@ -54,8 +54,21 @@ ConnectWise identifiers, or production settings in a report. Use synthetic `555`
   data.
 - **CallBridge not supporting emergency calling.** It is not approved for production
   emergency calling. That is a documented limitation, not a defect.
-- **Unsigned local development builds.** Release artifacts are built by CI and code-signed
-  through the approved release process; a locally built binary is not a release.
+
+## Not yet implemented
+
+Do not treat these as guarantees. They are named here so nobody mistakes an intended
+control for an existing one.
+
+- **Release artifacts are not code-signed.** CI restores, builds, and tests; it does not
+  sign, and the installer scripts contain no signing step. Signed packaging and automated
+  update verification remain open production gates — see
+  [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md). Until that lands, verify
+  builds out of band and treat distribution as unauthenticated.
+- **SIP signaling currently runs over UDP.** The desktop pins the transport to `UDP` when
+  settings are saved, and a `sips:` prefix is stripped before registration, so certificate
+  validation is not exercised on the configured path. Assume SIP credentials and signaling
+  are **not** TLS-protected today.
 
 ## Operator and developer expectations
 
@@ -67,8 +80,8 @@ ConnectWise identifiers, or production settings in a report. Use synthetic `555`
   and support notes as sensitive.
 - Rotate any credential immediately if it may have been exposed. Removing it from Git
   history is not sufficient.
-- Release artifacts must be built by CI and code-signed through the approved release
-  process.
+- Release artifacts must be built by CI. Code signing through an approved release
+  process is required before public distribution and is not yet implemented.
 
 ## Design constraints that carry security weight
 
@@ -80,7 +93,9 @@ These are enforced properties, not preferences. See
 - All routes except `/health` require a random per-session bearer credential.
 - Browser origins and non-loopback host headers are rejected.
 - Request sizes and rates are bounded; logs omit sensitive payloads.
-- TLS SIP signaling uses the Windows trust chain with **no certificate-bypass option**.
+- No certificate-bypass option exists anywhere in the code. When TLS SIP signaling is
+  enabled, validation must use the Windows trust chain; the configured transport is UDP
+  today, so that path is not yet exercised.
 - Desktop secrets are DPAPI-protected and excluded from serialized settings.
 - Call history has configurable retention, authenticated export, and confirmed deletion.
 - Runtime databases and logs stay under the current user's local application-data
