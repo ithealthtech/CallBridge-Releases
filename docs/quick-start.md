@@ -205,6 +205,7 @@ time entries are logged under it.
 | **Call someone** | Type a name or number in *Search contacts or dial* and press Enter or **Call**, or click the phone button on a recent call or contact. |
 | **Answer from anywhere** | The incoming call window appears on top of other apps, with a Windows notification. |
 | **Take notes on a ticket** | Pick the ticket and type. **Save note now** saves immediately; unsaved notes save when you hang up. Each save adds a separate note. |
+| **Add a note to an older call** | Select the call in *Recent calls* and click **Add note** to write on one of that company's open tickets. |
 | **Finish notes after the call** | When the caller hangs up the notes panel stays open. Choose a ticket, keep typing, save, then click **Done**. See [Wrap-up](#wrap-up-notes-after-the-call-ends). |
 | **Create a ticket** | Click **+ New ticket** during the call. For unknown callers, search for the company first. |
 | **Transfer** | **Transfer** → enter the extension → **Blind transfer**, or **Consult first**. |
@@ -222,6 +223,11 @@ writing up the call:
 - **Keep typing and click Save note now.** Each save adds a separate internal note, and the
   box clears so your next note is its own entry.
 - **Click Done** when you're finished. Wrap-up also closes as soon as the next call starts.
+
+Already clicked **Done**, or taken another call since? On Home, select the call in *Recent
+calls* and click **Add note**. CallBridge loads that company's open tickets so you can write
+the note on the right one; if there are none open, choose **New ticket instead**. The
+**Call notes** button beside it edits CallBridge's own call log, not ConnectWise.
 
 Notes typed during the call are still saved automatically to the chosen ticket when the call
 ends. Clicking **Done** with notes typed and no ticket chosen copies them to your clipboard.
