@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private readonly SipSoftphone _sip = new();
     private readonly WindowsRingtonePlayer _ringer = new();
     private string? _sipCallId;
+    private UpdateInfo? _availableUpdate;
+    private bool _installingUpdate;
     private SipCallDirection _sipCallDirection = SipCallDirection.None;
     private string _sipRemoteParty = "";
     private string _sipRemoteNumber = "";
@@ -158,6 +160,7 @@ public partial class MainWindow : Window
         NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) => StartInBackground();
+        Loaded += (_, _) => _ = CheckForUpdatesLoopAsync();
         Closing += OnClosing;
     }
 
@@ -1030,7 +1033,8 @@ public partial class MainWindow : Window
         };
         DialText.KeyDown += async (_, e) => await HandleDialTextKeyDownAsync(e);
         KeypadToggleButton.Click += (_, _) => ToggleKeypad();
-        StatusBannerDismissButton.Click += (_, _) => StatusBanner.Visibility = Visibility.Collapsed;
+        StatusBannerDismissButton.Click += (_, _) => { StatusBanner.Visibility = Visibility.Collapsed; InstallUpdateButton.Visibility = Visibility.Collapsed; };
+        InstallUpdateButton.Click += async (_, _) => await InstallUpdateAsync();
         ImportContactsButton.Click += async (_, _) => await ImportContactsAsync();
         SyncConnectWiseButton.Click += async (_, _) => await SyncConnectWiseAsync();
         CreateTicketButton.Click += async (_, _) => await CreateTicketForSelectedContactAsync();
@@ -3566,6 +3570,92 @@ public partial class MainWindow : Window
         SettingsScroller.Focus();
     }
 
+    private async Task CheckForUpdatesLoopAsync()
+    {
+        // Let startup, sign-in, and the directory load settle before the first check; then re-check a few times a day.
+        await Task.Delay(TimeSpan.FromSeconds(30));
+        while (IsLoaded)
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var update = await UpdateChecker.CheckAsync(timeout.Token);
+                if (update is not null && !_installingUpdate && (_availableUpdate is null || update.Version > _availableUpdate.Version))
+                {
+                    _availableUpdate = update;
+                    ShowUpdateBanner();
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException)
+            {
+                App.LogStartup($"Update check skipped: {ex.GetType().Name}.");
+            }
+            await Task.Delay(TimeSpan.FromHours(6));
+        }
+    }
+
+    private void ShowUpdateBanner()
+    {
+        if (_availableUpdate is null) return;
+        ShowBanner($"CallBridge {_availableUpdate.Version} is available. You have {UpdateChecker.CurrentVersion}.", ThemePalette.Hex("Accent"));
+        InstallUpdateButton.Content = "Install update";
+        InstallUpdateButton.IsEnabled = true;
+        InstallUpdateButton.Visibility = Visibility.Visible;
+    }
+
+    private bool IsCallInProgress()
+    {
+        var sipStatus = _sip.CurrentCall;
+        return _activeCallId is not null || _sipCallId is not null
+            || sipStatus.HasPendingIncomingCall || _sip.CurrentWaitingCall.HasPendingCall
+            || sipStatus.State is not (SipCallState.Idle or SipCallState.Failed);
+    }
+
+    private async Task InstallUpdateAsync()
+    {
+        if (_availableUpdate is not { } update || _installingUpdate) return;
+        if (IsCallInProgress())
+        {
+            ShowBanner("Finish your call first, then install the update.", ThemePalette.Hex("Warn"));
+            return;
+        }
+
+        _installingUpdate = true;
+        InstallUpdateButton.IsEnabled = false;
+        try
+        {
+            var progress = new Progress<int>(percent => StatusText.Text = $"Downloading CallBridge {update.Version}… {percent}%");
+            ShowBanner($"Downloading CallBridge {update.Version}…", ThemePalette.Hex("Accent"));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            var msi = await UpdateChecker.DownloadVerifiedAsync(update, progress, timeout.Token);
+            if (IsCallInProgress())
+            {
+                ShowBanner("The update is ready. Finish your call, then click Install update.", ThemePalette.Hex("Warn"));
+                InstallUpdateButton.IsEnabled = true;
+                return;
+            }
+            ShowBanner($"Installing CallBridge {update.Version}. CallBridge will close and reopen from the Start menu.", ThemePalette.Hex("Accent"));
+            UpdateChecker.LaunchInstaller(msi);
+            App.LogStartup($"Update to {update.Version} started.");
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            _exitRequested = true;
+            System.Windows.Application.Current.Shutdown();
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // The admin prompt was declined.
+            ShowUpdateBanner();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            ShowBanner(ex is InvalidDataException ? ex.Message : "The update couldn't be downloaded. Try again later.", ThemePalette.Hex("Bad"));
+            InstallUpdateButton.IsEnabled = true;
+        }
+        finally
+        {
+            _installingUpdate = false;
+        }
+    }
     private void ShowBanner(string message, string dotHex)
     {
         if (string.IsNullOrWhiteSpace(message)) return;

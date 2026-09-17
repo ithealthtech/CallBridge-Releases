@@ -62,6 +62,7 @@
         <!-- Inline status and service warnings -->
         <Border x:Name="StatusBanner" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource Sunk}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,6">
             <DockPanel>
+                <Button x:Name="InstallUpdateButton" DockPanel.Dock="Right" Visibility="Collapsed" Content="Install update" Style="{StaticResource ToolbarButton}" MinHeight="28" Margin="0,0,6,0" AutomationProperties.Name="Install update"/>
                 <Button x:Name="StatusBannerDismissButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" MinHeight="28" Width="28" FontSize="11" Content="&#xE711;"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{DynamicResource Good}" Margin="0,0,8,0" VerticalAlignment="Center"/>

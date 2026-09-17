@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using System.Net.Security;
 using CallBridge.Desktop;
 using SIPSorcery.SIP;
@@ -60,6 +61,26 @@ Check("loopback is allowed with the test switch", SipIncomingCallPolicy.IsTruste
 Check("test switch does not open other sources", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("198.51.100.7"), phoneSystem, true));
 Check("unknown source is refused", !SipIncomingCallPolicy.IsTrustedSignalingSource(null, phoneSystem, true));
 Check("nothing is trusted before registration", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("203.0.113.10"), [], false));
+Console.WriteLine("Update feed");
+const string hash = "010D7C14E8BBAB7FF4989F144A6542501A21A4FCEA953643B54088A866425A68";
+static JsonElement Release(string tag, string body, string url, bool prerelease = false) => JsonDocument.Parse(JsonSerializer.Serialize(new
+{
+    tag_name = tag, draft = false, prerelease, body, html_url = "https://github.com/ithealthtech/CallBridge-Releases/releases/tag/" + tag,
+    assets = new[] { new { name = "CallBridge-" + tag + ".msi", browser_download_url = url } }
+})).RootElement;
+var goodUrl = "https://github.com/ithealthtech/CallBridge-Releases/releases/download/v0.16.0/CallBridge-v0.16.0.msi";
+var current = new Version(0, 15, 2);
+var newer = UpdateChecker.ParseRelease(Release("v0.16.0", "Notes. SHA256: " + hash, goodUrl), current);
+Check("newer release is offered", newer is not null && newer.Version == new Version(0, 16, 0) && newer.Sha256 == hash && newer.InstallerUri.AbsoluteUri == goodUrl);
+Check("same version is not offered", UpdateChecker.ParseRelease(Release("v0.15.2", "SHA256: " + hash, goodUrl), current) is null);
+Check("older version is not offered", UpdateChecker.ParseRelease(Release("v0.15.1", "SHA256: " + hash, goodUrl), current) is null);
+Check("prerelease is not offered", UpdateChecker.ParseRelease(Release("v0.16.0", "SHA256: " + hash, goodUrl, prerelease: true), current) is null);
+Check("release without a checksum is not offered", UpdateChecker.ParseRelease(Release("v0.16.0", "no hash", goodUrl), current) is null);
+Check("installer from another repository is refused", UpdateChecker.ParseRelease(Release("v0.16.0", "SHA256: " + hash, "https://github.com/someone/else/releases/download/v0.16.0/x.msi"), current) is null);
+Check("installer from another host is refused", UpdateChecker.ParseRelease(Release("v0.16.0", "SHA256: " + hash, "https://example.com/ithealthtech/CallBridge-Releases/releases/download/v0.16.0/x.msi"), current) is null);
+Check("plain http installer is refused", UpdateChecker.ParseRelease(Release("v0.16.0", "SHA256: " + hash, goodUrl.Replace("https:", "http:")), current) is null);
+Check("build metadata version parses", UpdateChecker.TryParseVersion("0.15.2+9755262", out var parsed) && parsed == new Version(0, 15, 2));
+Check("garbage tag is refused", !UpdateChecker.TryParseVersion("latest", out _));
 if (failures.Count > 0)
 {
     Console.WriteLine($"SIP transport smoke test FAILED: {string.Join(", ", failures)}");

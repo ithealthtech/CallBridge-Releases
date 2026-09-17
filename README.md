@@ -110,3 +110,9 @@ See [SECURITY.md](SECURITY.md) and [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY
 ## Release status
 
 CallBridge is under active development and is not yet approved for production emergency calling. Licensing and production distribution terms must be selected before public publication.
+
+## Updates
+
+CallBridge checks the public [CallBridge-Releases](https://github.com/ithealthtech/CallBridge-Releases) repository 30 seconds after it starts and every 6 hours after that. That repository holds installers only; this source repository stays private. When a newer release exists, a banner offers **Install update**. CallBridge downloads the MSI, refuses it unless its SHA256 matches the `SHA256: <hash>` line in the release notes, waits until no call is active, then starts Windows Installer (which asks for admin approval) and closes. Drafts, prereleases, and installers hosted anywhere other than that repository's release downloads are ignored.
+
+To publish a release: build the MSI with `installer\build-msi.ps1`, then create the release with the same tag in **both** repositories, attach the MSI, and put the printed `SHA256: <hash>` line in the notes. Without that line, installed copies won't offer the update.
