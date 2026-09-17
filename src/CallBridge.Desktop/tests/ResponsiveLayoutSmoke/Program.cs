@@ -924,8 +924,9 @@ internal static class Program
             settings.GetType().GetProperty("BrandLogoPath")!.SetValue(settings, stored);
             applyBranding.Invoke(window, null);
 
-            AssertVisible(window, "LogoImage", "header logo after importing a logo");
-            AssertCollapsed(window, "LogoText", "header initials while a logo is shown");
+            AssertVisible(window, "HeaderLogoImage", "header logo after importing a logo");
+            AssertCollapsed(window, "LogoTile", "header initials tile while a logo is shown");
+            AssertCollapsed(window, "BrandTitle", "header product name while a logo is shown");
             var accent = window.FindResource("Accent") as SolidColorBrush
                 ?? throw new InvalidOperationException("Accent brush is missing.");
             if (accent.Color != Color.FromRgb(0x0E, 0x7C, 0x74))
@@ -934,6 +935,7 @@ internal static class Program
             ShowRows(window, "Recent calls",
                 new RowItem("Dana Mercer", "(828) 555-0142 · Inbound · connected · 04:12 · Sep 14, 3:52 PM · Blue Ridge Dental", "Call", "8285550142", CompanyId: "101", CallId: "call-1"),
                 new RowItem("Marcus Tate", "Ext 208 · Outbound · connected · 01:05 · Sep 14, 2:10 PM", "Call", "208", CallId: "call-2"));
+            AssertCollapsed(window, "BrandTitle", "header product name while a logo is shown after layout");
             var preview = RenderWindowPreview(window, "callbridge-branded.png");
 
             Branding.RemoveLogo(stored);

@@ -1387,7 +1387,7 @@ public partial class MainWindow : Window
     private void ShowBrandLogo()
     {
         var logo = Branding.Logo;
-        foreach (var (tile, image, text) in new[] { (LogoTile, LogoImage, LogoText), (LogoPreviewTile, LogoPreviewImage, LogoPreviewText) })
+        foreach (var (tile, image, text) in new[] { (LogoPreviewTile, LogoPreviewImage, LogoPreviewText) })
         {
             image.Source = logo;
             image.Visibility = logo is null ? Visibility.Collapsed : Visibility.Visible;
@@ -1396,7 +1396,14 @@ public partial class MainWindow : Window
             if (logo is null) tile.SetResourceReference(Border.BackgroundProperty, "Accent");
             else tile.Background = Brushes.Transparent;
         }
-        RemoveLogoButton.IsEnabled = logo is not null;
+        // An uploaded logo replaces the tile and product name in the header; without one, show both.
+        HeaderLogoImage.Source = logo;
+        HeaderLogoImage.Visibility = logo is null ? Visibility.Collapsed : Visibility.Visible;
+        LogoTile.Visibility = logo is null ? Visibility.Visible : Visibility.Collapsed;
+        BrandTitle.Visibility = logo is null ? Visibility.Visible : Visibility.Collapsed;
+        LogoText.Text = Branding.ProductInitials;
+        LogoPreviewTile.Width = logo is null ? 48 : double.NaN;
+        LogoPreviewTile.MaxWidth = 200;        RemoveLogoButton.IsEnabled = logo is not null;
     }
 
     private void WireAdminSettings()
@@ -2066,7 +2073,7 @@ public partial class MainWindow : Window
         var width = ActualWidth > 0 ? ActualWidth : Width;
         var narrow = width < 700;
         var tiny = width < 600;
-        BrandTitle.Visibility = tiny ? Visibility.Collapsed : Visibility.Visible;
+        BrandTitle.Visibility = tiny || Branding.Logo is not null ? Visibility.Collapsed : Visibility.Visible;
         ExtensionText.Visibility = narrow ? Visibility.Collapsed : Visibility.Visible;
         ContentHost.Margin = narrow ? new Thickness(10) : new Thickness(14);
         foreach (var grid in new[] { SettingsGeneralGrid, SettingsAudioGrid, SettingsSipGrid, SettingsCwPlatformGrid, SettingsCwPsaGrid, SettingsBrandingGrid })

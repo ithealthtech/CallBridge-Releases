@@ -36,6 +36,7 @@
                             <Image x:Name="LogoImage" Visibility="Collapsed" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                         </Grid>
                     </Border>
+                    <Image x:Name="HeaderLogoImage" Visibility="Collapsed" Height="28" MaxWidth="200" Stretch="Uniform" StretchDirection="DownOnly" RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center" AutomationProperties.Name="Company logo"/>
                     <TextBlock x:Name="BrandTitle" Text="CallBridge" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
                 </StackPanel>
 
@@ -655,9 +656,9 @@
                                             </Grid>
                                         </Border>
                                         <Button x:Name="ChooseLogoButton" Content="Choose logo…" Style="{StaticResource ToolbarButton}" Margin="0,6,6,6" ToolTip="Choose a PNG or JPEG logo, up to 1 MB" AutomationProperties.Name="Choose logo"/>
-                                        <Button x:Name="RemoveLogoButton" Content="Remove logo" Style="{StaticResource ToolbarButton}" Margin="0,6,6,6" ToolTip="Show the product initials instead of a logo" AutomationProperties.Name="Remove logo"/>
+                                        <Button x:Name="RemoveLogoButton" Content="Remove logo" Style="{StaticResource ToolbarButton}" Margin="0,6,6,6" ToolTip="Show the product name instead of a logo" AutomationProperties.Name="Remove logo"/>
                                     </WrapPanel>
-                                    <TextBlock x:Name="LogoMessageText" Text="PNG or JPEG, up to 1 MB. A square image works best." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,0"/>
+                                    <TextBlock x:Name="LogoMessageText" Text="PNG or JPEG, up to 1 MB. A wide logo with a transparent background replaces the name at the top of the window." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,0"/>
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource SettingsCard}">
