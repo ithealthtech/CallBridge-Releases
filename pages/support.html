@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Fix common CallBridge problems: the phone won't register, no audio, callers aren't recognized, ConnectWise errors, voicemail and parking status, and updates.">
+  <meta name="theme-color" content="#0b0a17">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Troubleshooting &middot; CallBridge</title>
+  <link rel="icon" href="images/callbridge-mark.png">
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="index.html" aria-label="CallBridge documentation home">
+        <span class="brand-mark" aria-hidden="true">CB</span>
+        <span>CallBridge</span>
+      </a>
+      <nav class="site-nav" data-site-nav aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="guide.html">Quick start</a>
+        <a href="support.html" aria-current="page">Support</a>
+        <a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Download</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="icon-button" type="button" data-doc-theme-toggle aria-label="Use light documentation theme">&#9728;</button>
+        <button class="menu-button" type="button" data-menu-toggle aria-label="Open navigation" aria-expanded="false">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="page-hero">
+      <div class="container">
+        <p class="eyebrow">Support</p>
+        <h1>Troubleshooting</h1>
+        <p class="hero-copy">Find your problem below. Most fixes take a minute. If you're still stuck, create a support bundle and send it to your admin.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">Phone and audio</p>
+          <h2>Calls and sound</h2>
+        </div>
+        <div class="accordion">
+          <details>
+            <summary>The status pill stays orange or says Offline</summary><div>
+            <ul>
+              <li>Click <strong>Register</strong> in the top bar. CallBridge only connects after you do.</li>
+              <li>Check the <strong>SIP server</strong>, <strong>username</strong>, and <strong>password</strong> in Settings &rarr; SIP. The password is the extension's SIP secret, not your voicemail PIN.</li>
+              <li>Match the <strong>Transport</strong> to your provider. HivePBX extensions accept <strong>UDP</strong> only; choosing the <strong>Axion / HivePBX</strong> provider sets this for you.</li>
+              <li>Make sure no other softphone or desk phone is fighting for the same extension on this network.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>I can't hear the caller, or they can't hear me</summary><div>
+            <ul>
+              <li>Settings &rarr; <strong>Audio</strong>: confirm the headset is chosen for both <strong>Microphone</strong> and <strong>Speaker</strong>, then use <strong>Test microphone</strong> and <strong>Test speaker</strong>.</li>
+              <li>If you plugged the headset in after opening CallBridge, click <strong>Refresh devices</strong>.</li>
+              <li>Check that <strong>Mute</strong> isn't on during the call.</li>
+              <li>Windows Settings &rarr; Privacy &amp; security &rarr; <strong>Microphone</strong>: allow desktop apps to use the microphone.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>Incoming calls don't ring</summary><div>
+            <ul>
+              <li>CallBridge must be running. Look for its icon in the system tray. Turn on <strong>Launch when I sign in to Windows</strong> in Settings &rarr; Sign-in.</li>
+              <li>Settings &rarr; Audio &rarr; <strong>Ringtone plays on</strong>: choose a speaker you can hear, then <strong>Test ringtone</strong>.</li>
+              <li>Windows Focus assist or Do not disturb can hide the notification. The incoming call window still appears.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>The Voicemail card says "Waiting for status"</summary><div>
+            <p>The phone must be registered first. Then check Settings &rarr; Phone account &rarr; <strong>Voicemail access code</strong> (HivePBX: <code>*97</code>). Some phone systems only send voicemail status after the first new message, so leave yourself a test voicemail.</p>
+          </div></details>
+
+          <details>
+            <summary>Call parking shows "No park slots set up"</summary><div>
+            <p>Settings &rarr; Phone account &rarr; <strong>Park slots</strong>: enter the slot numbers, such as <code>4389</code> or <code>701-705</code>. Put the code that parks a call in <strong>Park code</strong> instead, for example HivePBX's <code>4388</code>. Don't list the park code as a slot.</p>
+          </div></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">ConnectWise</p>
+          <h2>Tickets and callers</h2>
+        </div>
+        <div class="accordion">
+          <details>
+            <summary>A customer calls but shows as an unknown number</summary><div>
+            <ul>
+              <li>Settings &rarr; ConnectWise &rarr; <strong>Sync ConnectWise contacts</strong> to refresh the directory. New ConnectWise contacts don't appear until you sync.</li>
+              <li>The contact needs a phone number in ConnectWise that matches the number they're calling from, such as their mobile.</li>
+              <li>On <strong>ConnectWise Platform</strong>, only each company's main number and primary contact's number can match. Add other callers with <strong>Import CSV</strong> or <strong>Add contact</strong>, or use <strong>Platform, with PSA contact lookup</strong>.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>"Ticket creation failed" or a ticket takes a long time</summary><div>
+            <p>ConnectWise can take a minute or more to create a ticket while it runs board workflows and email notifications. CallBridge waits up to 2 minutes. If ConnectWise still doesn't answer, CallBridge checks whether the ticket was created anyway before reporting a problem.</p>
+            <p><strong>Before trying again, look in ConnectWise</strong> for a new "Phone support" ticket on that company, so you don't create a duplicate. If creation is always slow, ask your admin to review the board's workflow rules.</p>
+          </div></details>
+
+          <details>
+            <summary>"Connect ConnectWise in Settings first"</summary><div>
+            <p>The chosen <strong>Ticketing connection</strong> isn't fully set up. For PSA, fill in every field on the PSA API member card and click <strong>Test PSA</strong>. For Platform, enter the client ID and secret and click <strong>Test Platform</strong>. Then save.</p>
+          </div></details>
+
+          <details>
+            <summary>"Ask your admin to choose a default service board"</summary><div>
+            <p>New tickets need somewhere to go. For PSA, enter the <strong>Default service board ID</strong>. For Platform, click <strong>Load boards and sources</strong>, pick a board and a source, and save.</p>
+          </div></details>
+
+          <details>
+            <summary>ConnectWise PSA test fails with 401 or 403</summary><div>
+            <ul>
+              <li><strong>401</strong>: the Site URL, Company ID, public key, or private key is wrong. Private keys can't be viewed again; generate a new key pair if unsure.</li>
+              <li><strong>403</strong>: the API member's security role is missing permissions. It needs to read companies, contacts, and service tickets, create tickets and notes, and create time entries.</li>
+              <li>Make sure the <strong>Client ID</strong> is filled in. ConnectWise rejects requests without one.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>ConnectWise Platform test fails</summary><div>
+            <ul>
+              <li><strong>401</strong>: check the client ID, secret, and that you picked the right <strong>region</strong>.</li>
+              <li><strong>403</strong>: the API access is missing scopes. It needs Tickets Read, Create, and Update, and Companies Read.</li>
+              <li><strong>423 Locked</strong>: too many sign-ins in a short time. Wait for the current token to expire (up to an hour) and try again.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>"Time wasn't saved" or no time entry draft appears</summary><div>
+            <ul>
+              <li>A draft only appears after a connected call where a <strong>ticket was picked</strong>.</li>
+              <li>PSA time entries need <strong>Your member ID</strong> in Settings &rarr; Sign-in, and it must match your ConnectWise username exactly.</li>
+              <li>On Platform tickets there are no time entries. The minutes are saved as an internal note on the ticket instead.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>Open ticket in ConnectWise does nothing on Platform</summary><div>
+            <p>ConnectWise's Platform API doesn't provide ticket web links, so CallBridge shows the ticket number instead. Search for that number in ConnectWise.</p>
+          </div></details>
+
+          <details>
+            <summary>Does CallBridge work with ConnectWise RMM?</summary><div>
+            <p>Not directly. There is no RMM setting. Tickets that RMM creates in PSA or Platform, like patching and device alerts, appear in the incoming call window with the customer's other open tickets.</p>
+          </div></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">The app</p>
+          <h2>Install, updates, and settings</h2>
+        </div>
+        <div class="accordion">
+          <details>
+            <summary>I can't change phone or ConnectWise settings</summary><div>
+            <p>Those tabs are locked with an admin PIN. Ask your admin, or click the locked tab and enter the PIN. After too many wrong PINs, CallBridge makes you wait before trying again.</p>
+          </div></details>
+
+          <details>
+            <summary>The update won't install</summary><div>
+            <ul>
+              <li>Updates install for everyone on the computer, so Windows asks for <strong>admin approval</strong>. If you aren't an admin, ask your IT team to approve it or push the MSI.</li>
+              <li>Updates wait until you're not on a call.</li>
+              <li>"Didn't match its published checksum" means the download was damaged or tampered with. CallBridge refuses it; try again later.</li>
+            </ul>
+          </div></details>
+
+          <details>
+            <summary>The Start menu or taskbar icon is blank</summary><div>
+            <p>Install v0.15.2 or later, which fixes the icon. If it's still blank, Windows is showing a cached icon: unpin and re-pin CallBridge, or sign out of Windows and back in.</p>
+          </div></details>
+
+          <details>
+            <summary>Where's CallBridge when I close the window?</summary><div>
+            <p>Still running in the system tray, so calls keep ringing. Click the tray icon to open it; right-click to quit.</p>
+          </div></details>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="bundle">
+      <div class="container">
+        <div class="cta-panel">
+          <div>
+            <h3>Still stuck? Send a support bundle.</h3>
+            <p>Settings &rarr; Sign-in &rarr; <strong>Create support bundle</strong> saves a ZIP with version, settings status, and recent startup events. Passwords, keys, phone numbers, email addresses, and file paths are removed before it's written.</p>
+          </div>
+          <div class="button-row">
+            <a class="button button-primary" href="guide.html">Back to quick start</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CB</span><span>CallBridge</span></a>
+        <p class="footer-note">A Windows softphone with ConnectWise screen pops for MSP service desks.</p>
+      </div>
+      <div><h3>Learn</h3><a href="guide.html">Quick start</a><a href="guide.html#features">Using CallBridge</a><a href="support.html">Support</a></div>
+      <div><h3>Download</h3><a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Latest release</a><a href="https://github.com/ithealthtech/CallBridge-Releases/releases">All releases</a></div>
+      <div><h3>Company</h3><p class="footer-note">&copy; <span data-current-year></span> IT Health Tech LLC</p></div>
+    </div>
+  </footer>
+
+  <div class="sr-only" aria-live="polite" data-live-region></div>
+</body>
+</html>

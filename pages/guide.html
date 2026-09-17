@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Set up CallBridge step by step: install, connect your SIP phone account, connect ConnectWise PSA or Platform, load customers, choose your headset, and start taking calls.">
+  <meta name="theme-color" content="#0b0a17">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Quick start guide &middot; CallBridge</title>
+  <link rel="icon" href="images/callbridge-mark.png">
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="index.html" aria-label="CallBridge documentation home">
+        <span class="brand-mark" aria-hidden="true">CB</span>
+        <span>CallBridge</span>
+      </a>
+      <nav class="site-nav" data-site-nav aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="guide.html" aria-current="page">Quick start</a>
+        <a href="support.html">Support</a>
+        <a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Download</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="icon-button" type="button" data-doc-theme-toggle aria-label="Use light documentation theme">&#9728;</button>
+        <button class="menu-button" type="button" data-menu-toggle aria-label="Open navigation" aria-expanded="false">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="page-hero">
+      <div class="container">
+        <p class="eyebrow">Quick start guide</p>
+        <h1>Set up CallBridge in about 10 minutes.</h1>
+        <p class="hero-copy">Follow these steps in order. Steps marked <span class="badge badge-warning">Admin</span> are done once per computer by whoever manages your phone system and ConnectWise. Steps marked <span class="badge badge-success">Everyone</span> are for each technician.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container docs-layout">
+        <nav class="toc" aria-label="On this page">
+          <h2>On this page</h2>
+          <a href="#before">Before you start</a>
+          <a href="#install">1. Install</a>
+          <a href="#settings">2. Open Settings</a>
+          <a href="#phone">3. Phone account (SIP)</a>
+          <a href="#connectwise">4. ConnectWise</a>
+          <a href="#psa">&nbsp;&nbsp;&nbsp;PSA</a>
+          <a href="#platform">&nbsp;&nbsp;&nbsp;Platform</a>
+          <a href="#rmm">&nbsp;&nbsp;&nbsp;ConnectWise RMM</a>
+          <a href="#directory">5. Load your customers</a>
+          <a href="#audio">6. Headset</a>
+          <a href="#signin">7. Your member ID</a>
+          <a href="#pin">8. Protect admin settings</a>
+          <a href="#first-call">9. Make a test call</a>
+          <a href="#features">Using CallBridge</a>
+          <a href="#updates">Updates</a>
+          <a href="#checklist">Setup checklist</a>
+        </nav>
+
+        <div class="docs-content">
+          <h2 id="before">Before you start</h2>
+          <p>Have these ready. Your phone provider and ConnectWise admin can give you anything you don't have.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>What</th><th>Where to get it</th><th>Needed for</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Extension number</strong></td><td>Your phone system (for example <code>101</code>)</td><td>Phone</td></tr>
+                <tr><td><strong>SIP server, username, password</strong></td><td>Your phone provider or PBX admin</td><td>Phone</td></tr>
+                <tr><td><strong>ConnectWise PSA API member keys</strong></td><td>ConnectWise PSA &rarr; System &rarr; Members &rarr; API Members</td><td>PSA tickets</td></tr>
+                <tr><td><strong>ConnectWise Platform client ID and secret</strong></td><td>ConnectWise &rarr; Integrations &rarr; API Access</td><td>Platform tickets</td></tr>
+                <tr><td><strong>Your ConnectWise member ID</strong></td><td>The username you sign in to ConnectWise with</td><td>Time entries</td></tr>
+                <tr><td><strong>A headset</strong></td><td>Any USB, Bluetooth, or jack headset Windows recognizes</td><td>Calls</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="notice notice-danger">
+            <span aria-hidden="true">!</span>
+            <p><strong>CallBridge is not for emergency calls.</strong> It isn't approved for 911 or other emergency services. Keep another phone available.</p>
+          </div>
+
+          <h2 id="install">1. Install <span class="badge badge-warning">Admin</span></h2>
+          <ol class="step-list">
+            <li><strong>Download</strong>Open the <a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">latest release</a> and download <code>CallBridge-v&hellip;.msi</code>.</li>
+            <li><strong>Run the installer</strong>Double-click the MSI and approve the Windows admin prompt. CallBridge installs for everyone on the computer.</li>
+            <li><strong>Open CallBridge</strong>Use the Start menu or the desktop shortcut. A blue CallBridge icon also appears in the system tray next to the clock.</li>
+          </ol>
+          <div class="notice notice-warning">
+            <span aria-hidden="true">!</span>
+            <p><strong>Windows may warn you.</strong> The installer isn't code-signed yet, so SmartScreen can show "Windows protected your PC". Choose <strong>More info &rarr; Run anyway</strong> only if you downloaded it from the release page above. You can check the file against the SHA256 in the release notes:</p>
+          </div>
+          <div class="code-block">
+            <button class="copy-button" type="button" data-copy-target="#verify-hash">Copy</button>
+            <pre><code id="verify-hash">Get-FileHash "$env:USERPROFILE\Downloads\CallBridge-v*.msi" -Algorithm SHA256</code></pre>
+          </div>
+
+          <h2 id="settings">2. Open Settings</h2>
+          <p>Click the <strong>gear icon</strong> in the top-right corner of CallBridge. Settings has two groups of tabs:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Tabs</th><th>Who uses them</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Audio &middot; Sign-in &middot; About</strong></td><td>Every technician</td></tr>
+                <tr><td><strong>Phone account &middot; SIP &middot; ConnectWise &middot; Branding &amp; security</strong></td><td>Admins. These lock behind an admin PIN once one is set.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>After changing anything, click <strong>Save settings</strong> at the bottom of the page.</p>
+
+          <h2 id="phone">3. Connect the phone account <span class="badge badge-warning">Admin</span></h2>
+          <h3>Phone account tab</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>What to enter</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Provider</strong></td><td>Choose <strong>Axion / HivePBX</strong> if you use HivePBX. It fills in the right transport, audio codecs, voicemail code, and park code for you. Otherwise choose <strong>Standard SIP</strong>.</td></tr>
+                <tr><td><strong>Extension</strong></td><td>Your extension, for example <code>101</code>.</td></tr>
+                <tr><td><strong>Outbound caller ID</strong></td><td>Optional. The number customers see when you call out. Leave blank to use your phone system's default.</td></tr>
+                <tr><td><strong>Voicemail access code</strong></td><td>The code that reaches your voicemail. HivePBX: <code>*97</code>.</td></tr>
+                <tr><td><strong>Park code</strong></td><td>Parks a call in the next open slot. HivePBX: <code>4388</code>.</td></tr>
+                <tr><td><strong>Park slots</strong></td><td>The slot numbers to watch, for example <code>4389</code> or <code>701-705</code>. Enter slots only, not the park code.</td></tr>
+                <tr><td><strong>Pickup prefix</strong></td><td>Optional digits dialed before a slot to pick up a parked call. Leave blank for HivePBX (you dial the slot itself).</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>SIP tab</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>What to enter</th></tr></thead>
+              <tbody>
+                <tr><td><strong>SIP server or domain</strong></td><td>Your PBX address. For HivePBX this is your company's <code>&hellip;.hivepbx.com</code> address.</td></tr>
+                <tr><td><strong>SIP username</strong></td><td>Usually the same as your extension, for example <code>101</code>.</td></tr>
+                <tr><td><strong>SIP password</strong></td><td>The extension's SIP secret (not your voicemail PIN). HivePBX hides it in the admin panel, so ask your provider if you don't have it.</td></tr>
+                <tr><td><strong>Transport</strong></td><td>What your provider supports. HivePBX: <strong>UDP</strong> (set for you). TLS is more secure when your provider offers it.</td></tr>
+                <tr><td><strong>Codec profile</strong></td><td>Leave the default unless your provider says otherwise.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <ol class="step-list">
+            <li><strong>Save</strong>Click <strong>Save settings</strong>.</li>
+            <li><strong>Register</strong>Click <strong>Register</strong> in the top bar. The status pill turns green and shows your extension when the phone system accepts the login.</li>
+          </ol>
+          <div class="notice">
+            <span aria-hidden="true">i</span>
+            <p>Your SIP password is stored encrypted for your Windows account only. It is never included in support bundles.</p>
+          </div>
+
+          <h2 id="connectwise">4. Connect ConnectWise <span class="badge badge-warning">Admin</span></h2>
+          <p>Open the <strong>ConnectWise</strong> tab. First pick a <strong>Ticketing connection</strong>:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Choice</th><th>Use it when</th><th>Time entries</th></tr></thead>
+              <tbody>
+                <tr><td><strong>ConnectWise PSA</strong></td><td>You use ConnectWise PSA (Manage) with API member keys. Recommended today.</td><td>Real PSA time entries</td></tr>
+                <tr><td><strong>ConnectWise Platform</strong></td><td>You've moved to ConnectWise Platform and have OAuth API access.</td><td>Saved as an internal note on the ticket</td></tr>
+                <tr><td><strong>Platform, with PSA contact lookup</strong></td><td>You're moving from PSA to Platform. Tickets go to Platform; customer contacts still come from PSA for better caller matching.</td><td>Saved as an internal note on the ticket</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <figure class="panel">
+            <img src="images/connectwise-settings.png" alt="CallBridge ConnectWise settings showing the Ticketing connection choice" loading="lazy">
+            <figcaption>Settings &rarr; ConnectWise &rarr; Ticketing connection.</figcaption>
+          </figure>
+
+          <h3 id="psa">ConnectWise PSA</h3>
+          <p><strong>In ConnectWise PSA</strong>, create an API member for CallBridge:</p>
+          <ol class="step-list">
+            <li><strong>Create the member</strong>System &rarr; Members &rarr; API Members &rarr; <strong>+</strong>. Give it a security role that can read companies, contacts, and service tickets, create tickets and notes, and create time entries.</li>
+            <li><strong>Generate keys</strong>Open the member &rarr; API Keys &rarr; <strong>+</strong>. Copy the <strong>public</strong> and <strong>private</strong> key. The private key is only shown once.</li>
+            <li><strong>Find your board ID</strong>Service &rarr; Setup Tables &rarr; Service Boards. Open the board new phone tickets should go to; the number at the end of the page address is its ID.</li>
+          </ol>
+          <p><strong>In CallBridge</strong>, fill in the <strong>PSA API member</strong> card:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Field</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Site URL</strong></td><td><code>na.myconnectwise.net</code> (the address you sign in at)</td></tr>
+                <tr><td><strong>Company ID</strong></td><td>The company name you type on the ConnectWise sign-in page</td></tr>
+                <tr><td><strong>Public key</strong> / <strong>Private key</strong></td><td>From the API member you just created</td></tr>
+                <tr><td><strong>Client ID</strong></td><td>Your integration client ID from the ConnectWise Developer Network</td></tr>
+                <tr><td><strong>Default service board ID</strong></td><td><code>27</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Click <strong>Test PSA</strong>. You should see <em>ConnectWise PSA authentication succeeded.</em> Then click <strong>Save settings</strong>.</p>
+
+          <h3 id="platform">ConnectWise Platform</h3>
+          <ol class="step-list">
+            <li><strong>Create API access</strong>In ConnectWise: Integrations &rarr; API Access &rarr; <strong>Generate Access</strong>. Select these scopes: <strong>Tickets &ndash; Read</strong>, <strong>Tickets &ndash; Create</strong>, <strong>Tickets &ndash; Update</strong>, and <strong>Companies &ndash; Read</strong>. Copy the client ID and secret.</li>
+            <li><strong>Enter the credentials</strong>In the <strong>ConnectWise Platform</strong> card, choose your region (North America, Europe, or Australia), then paste the <strong>OAuth client ID</strong> and <strong>client secret</strong>. The scopes are filled in for you.</li>
+            <li><strong>Test and save</strong>Click <strong>Test Platform</strong>, then <strong>Save settings</strong>.</li>
+            <li><strong>Choose ticket defaults</strong>Click <strong>Load boards and sources</strong>. Pick the <strong>Default service board</strong> and a <strong>Ticket source</strong> such as <em>Phone</em>, then <strong>Save settings</strong> again.</li>
+          </ol>
+          <div class="code-block">
+            <button class="copy-button" type="button" data-copy-target="#platform-scopes">Copy</button>
+            <pre><code id="platform-scopes">platform.tickets.read platform.tickets.create platform.tickets.update platform.companies.read</code></pre>
+          </div>
+          <div class="notice notice-warning">
+            <span aria-hidden="true">!</span>
+            <p><strong>What Platform can't do yet.</strong> ConnectWise's Platform API has no time entries, no contact search, and no ticket web links. CallBridge saves call time as an internal note, matches callers by each company's main number and primary contact (plus contacts you import), and shows the ticket number for you to open in ConnectWise.</p>
+          </div>
+
+          <h3 id="rmm">ConnectWise RMM</h3>
+          <div class="notice">
+            <span aria-hidden="true">i</span>
+            <p><strong>CallBridge doesn't connect to ConnectWise RMM directly</strong>, and there is nothing to set up for it. Tickets that RMM creates in PSA or Platform, such as patching or device alerts, show up in the incoming call window like any other open ticket, so you still see them when that customer calls.</p>
+          </div>
+
+          <h2 id="directory">5. Load your customers <span class="badge badge-warning">Admin</span></h2>
+          <p>CallBridge recognizes callers by matching their number against its directory. Fill it once, then again whenever you add customers.</p>
+          <ul>
+            <li><strong>Sync ConnectWise contacts</strong> (ConnectWise tab) downloads every active contact that has a phone number. On Platform it downloads companies and their main numbers.</li>
+            <li><strong>Import CSV</strong> adds contacts from a spreadsheet, for example after-hours numbers or vendors.</li>
+            <li><strong>Add contact</strong> adds one person by hand.</li>
+          </ul>
+          <p>Numbers match however they're formatted, so <code>(732) 297-7575</code>, <code>732-297-7575</code>, and <code>+17322977575</code> are the same caller.</p>
+
+          <h2 id="audio">6. Choose your headset <span class="badge badge-success">Everyone</span></h2>
+          <ol class="step-list">
+            <li><strong>Plug it in first</strong>Then open Settings &rarr; <strong>Audio</strong> and click <strong>Refresh devices</strong> if it isn't listed.</li>
+            <li><strong>Pick devices</strong>Choose your headset for <strong>Microphone</strong> and <strong>Speaker</strong>. Set <strong>Ringtone plays on</strong> to your computer speakers so you hear calls with the headset off.</li>
+            <li><strong>Test</strong>Use <strong>Test microphone</strong>, <strong>Test speaker</strong>, and <strong>Test ringtone</strong>, then save.</li>
+          </ol>
+
+          <h2 id="signin">7. Add your member ID <span class="badge badge-success">Everyone</span></h2>
+          <p>Settings &rarr; <strong>Sign-in</strong> &rarr; <strong>Your member ID</strong>: enter the username you sign in to ConnectWise with. PSA time entries are logged under it. While you're there:</p>
+          <ul>
+            <li><strong>Launch when I sign in to Windows</strong> starts CallBridge quietly in the tray so you never miss a call.</li>
+            <li><strong>Keep CallBridge on top during active calls</strong> keeps notes and call controls visible.</li>
+          </ul>
+
+          <h2 id="pin">8. Protect admin settings <span class="badge badge-warning">Admin</span></h2>
+          <p>Settings &rarr; <strong>Branding &amp; security</strong> &rarr; <strong>Admin PIN</strong>. Enter 4 to 12 digits twice and click <strong>Set PIN</strong>. Technicians can still change audio and sign-in, but phone and ConnectWise settings need the PIN. While you're there you can set your <strong>logo</strong> and <strong>accent color</strong>.</p>
+
+          <h2 id="first-call">9. Make a test call <span class="badge badge-success">Everyone</span></h2>
+          <ol class="step-list">
+            <li><strong>Check the status pill</strong>Top bar shows green with your extension.</li>
+            <li><strong>Call yourself</strong>From a mobile phone, call your direct line or extension.</li>
+            <li><strong>Expect the pop-up</strong>The incoming call window shows the caller and, if they're a customer, their company and open tickets. Click <strong>Answer</strong>.</li>
+            <li><strong>Try the controls</strong><strong>Mute</strong>, <strong>Hold</strong>, then hang up. If you picked a ticket, a time entry draft appears. Check the minutes and click <strong>Save time</strong>.</li>
+          </ol>
+
+          <h2 id="features">Using CallBridge day to day</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>To do this</th><th>Do this</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Call someone</strong></td><td>Type a name or number in <em>Search contacts or dial</em> on Home, then press Enter or <strong>Call</strong>. Or click the phone button on any recent call or contact.</td></tr>
+                <tr><td><strong>Answer from anywhere</strong></td><td>The incoming call window appears on top of other apps. Windows also shows a notification.</td></tr>
+                <tr><td><strong>Take notes on a ticket</strong></td><td>During a call, pick the ticket and type. <strong>Save note now</strong> saves immediately; unsaved notes are saved when you hang up. With no ticket picked, notes are copied to your clipboard.</td></tr>
+                <tr><td><strong>Create a ticket</strong></td><td>Click <strong>+ New ticket</strong> during the call. For unknown callers, search for the company first.</td></tr>
+                <tr><td><strong>Transfer</strong></td><td><strong>Transfer</strong> &rarr; enter the extension &rarr; <strong>Blind transfer</strong>, or <strong>Consult first</strong> to talk to them before handing off.</td></tr>
+                <tr><td><strong>Park a call</strong></td><td>Click <strong>Park</strong>. The Call parking card on Home shows which slot is busy. Click <strong>Pick up</strong> next to the slot, or dial the slot from any phone.</td></tr>
+                <tr><td><strong>Check voicemail</strong></td><td>The Voicemail card on Home shows new messages. Click <strong>Call</strong> to listen.</td></tr>
+                <tr><td><strong>Log time</strong></td><td>After a call with a ticket picked, adjust the minutes on the draft and click <strong>Save time</strong>. Drafts from back-to-back calls wait in order.</td></tr>
+                <tr><td><strong>Hide CallBridge</strong></td><td>Close the window. It keeps running in the tray and still rings. Right-click the tray icon to quit.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="updates">Updates</h2>
+          <p>CallBridge checks for updates when it starts and every 6 hours. When one is ready you'll see an <strong>Update available</strong> badge next to your extension. Click it, approve the Windows prompt, and CallBridge closes, updates, and can be reopened from the Start menu. It never updates during a call.</p>
+          <p>To check yourself: Settings &rarr; <strong>About</strong> &rarr; <strong>Check now</strong>, or <strong>Check for updates</strong> in the tray icon's pop-up.</p>
+          <figure class="panel">
+            <img src="images/about-updates.png" alt="CallBridge Settings About tab showing the installed version, last update check, and Install button" loading="lazy">
+            <figcaption>Settings &rarr; About. Sample shows an available update.</figcaption>
+          </figure>
+
+          <h2 id="checklist">Setup checklist</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Check</th><th>Looks like this when it works</th></tr></thead>
+              <tbody>
+                <tr><td>Phone</td><td>Green status pill with your extension</td></tr>
+                <tr><td>ConnectWise</td><td><strong>Test PSA</strong> or <strong>Test Platform</strong> reports success</td></tr>
+                <tr><td>Customers</td><td>Searching a customer's name on Home finds them</td></tr>
+                <tr><td>Headset</td><td>The microphone test hears you and the speaker test plays a tone</td></tr>
+                <tr><td>Voicemail</td><td>The Voicemail card shows a message count instead of <em>Waiting for status</em></td></tr>
+                <tr><td>Parking</td><td>The Call parking card lists your slots</td></tr>
+                <tr><td>Test call</td><td>The pop-up shows the caller's company and open tickets</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Something not right? See <a href="support.html">Troubleshooting</a>.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CB</span><span>CallBridge</span></a>
+        <p class="footer-note">A Windows softphone with ConnectWise screen pops for MSP service desks.</p>
+      </div>
+      <div><h3>Learn</h3><a href="guide.html">Quick start</a><a href="guide.html#features">Using CallBridge</a><a href="support.html">Support</a></div>
+      <div><h3>Download</h3><a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Latest release</a><a href="https://github.com/ithealthtech/CallBridge-Releases/releases">All releases</a></div>
+      <div><h3>Company</h3><p class="footer-note">&copy; <span data-current-year></span> IT Health Tech LLC</p></div>
+    </div>
+  </footer>
+
+  <div class="sr-only" aria-live="polite" data-live-region></div>
+</body>
+</html>

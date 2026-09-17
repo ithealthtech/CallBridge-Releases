@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CallBridge is a Windows softphone for MSP technicians that pops the caller's ConnectWise company and open tickets the moment the phone rings.">
+  <meta name="theme-color" content="#0b0a17">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>CallBridge &middot; Softphone with ConnectWise screen pops</title>
+  <link rel="icon" href="images/callbridge-mark.png">
+  <link rel="stylesheet" href="assets/site.css">
+  <script src="assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="nav-shell">
+      <a class="brand" href="index.html" aria-label="CallBridge documentation home">
+        <span class="brand-mark" aria-hidden="true">CB</span>
+        <span>CallBridge</span>
+      </a>
+      <nav class="site-nav" data-site-nav aria-label="Primary navigation">
+        <a href="index.html" aria-current="page">Overview</a>
+        <a href="guide.html">Quick start</a>
+        <a href="support.html">Support</a>
+        <a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Download</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="icon-button" type="button" data-doc-theme-toggle aria-label="Use light documentation theme">&#9728;</button>
+        <button class="menu-button" type="button" data-menu-toggle aria-label="Open navigation" aria-expanded="false">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <p class="eyebrow">CallBridge for Windows</p>
+          <h1>Know who's calling, and what's open for them, before you say hello.</h1>
+          <p class="hero-copy">CallBridge is a desktop softphone built for MSP technicians. When a customer calls, it shows their company and open ConnectWise tickets, lets you take notes straight onto a ticket, and drafts your time entry when you hang up.</p>
+          <div class="button-row">
+            <a class="button button-primary" href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Download the latest installer</a>
+            <a class="button" href="guide.html">Set it up in 10 minutes</a>
+          </div>
+        </div>
+        <aside class="hero-panel" aria-label="What you need">
+          <div class="release-line">
+            <div>
+              <span class="status-dot" aria-hidden="true"></span>
+              <span class="badge badge-success">Updates itself</span>
+            </div>
+            <strong>Windows 10 / 11</strong>
+          </div>
+          <dl class="meta-list">
+            <div class="meta-row"><dt>Phone system</dt><dd>Any SIP PBX &middot; HivePBX preset</dd></div>
+            <div class="meta-row"><dt>Ticketing</dt><dd>ConnectWise PSA or Platform</dd></div>
+            <div class="meta-row"><dt>Headset</dt><dd>Any Windows audio device</dd></div>
+            <div class="meta-row"><dt>Install</dt><dd>MSI, needs admin approval</dd></div>
+          </dl>
+          <div class="notice notice-warning">
+            <span aria-hidden="true">!</span>
+            <p><strong>Not for emergency calls.</strong> CallBridge isn't approved for 911 or other emergency calling. Keep a desk or mobile phone available.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section-compact">
+      <div class="container grid-4" aria-label="Highlights">
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">01</div>
+          <h3>Screen pop</h3>
+          <p>Incoming calls show the contact, company, and up to five open tickets, with one-click Answer and Decline.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">02</div>
+          <h3>Notes on the ticket</h3>
+          <p>Type while you talk. Notes save to the ticket you pick as an internal note, even if you forget to press Save.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">03</div>
+          <h3>Time you confirm</h3>
+          <p>When a call ends, CallBridge drafts the time entry. You check the minutes, then save it.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true">04</div>
+          <h3>Voicemail &amp; parking</h3>
+          <p>See new voicemail at a glance, and park or pick up calls without memorizing star codes.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container grid-2">
+        <figure class="panel">
+          <img src="images/screen-pop.png" alt="CallBridge incoming call window showing the caller, their company, and two open ConnectWise tickets" loading="lazy">
+          <figcaption>The incoming call window. Sample data only.</figcaption>
+        </figure>
+        <figure class="panel">
+          <img src="images/home.png" alt="CallBridge home screen with dial pad, phone status, voicemail card, and recent calls" loading="lazy">
+          <figcaption>Home: dial pad, phone and voicemail status, and recent calls. Sample data only.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="quick-start">
+      <div class="container">
+        <div class="section-heading">
+          <p class="section-kicker">Quick start</p>
+          <h2>From download to your first call</h2>
+          <p>Your admin does steps 2 to 4 once per computer. Technicians only need step 5 and a headset.</p>
+        </div>
+        <div class="grid-2">
+          <ol class="step-list">
+            <li><strong>Install</strong>Download the MSI from the latest release and approve the Windows prompt.</li>
+            <li><strong>Connect the phone</strong>Settings &rarr; Phone account and SIP. Enter your extension and SIP login, save, then Register.</li>
+            <li><strong>Connect ConnectWise</strong>Settings &rarr; ConnectWise. Choose PSA or Platform, enter the keys, and test.</li>
+            <li><strong>Load customers</strong>Sync ConnectWise contacts so callers are recognized.</li>
+            <li><strong>Set your headset and member ID</strong>Settings &rarr; Audio and Sign-in. Then take a call.</li>
+          </ol>
+          <div class="cta-panel">
+            <div>
+              <h3>Step-by-step instructions</h3>
+              <p>Every field, where to find the values in HivePBX and ConnectWise, and what to expect when it works.</p>
+            </div>
+            <div class="button-row">
+              <a class="button button-primary" href="guide.html">Open the quick start guide</a>
+              <a class="button" href="support.html">Troubleshooting</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div>
+        <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CB</span><span>CallBridge</span></a>
+        <p class="footer-note">A Windows softphone with ConnectWise screen pops for MSP service desks.</p>
+      </div>
+      <div><h3>Learn</h3><a href="guide.html">Quick start</a><a href="guide.html#features">Using CallBridge</a><a href="support.html">Support</a></div>
+      <div><h3>Download</h3><a href="https://github.com/ithealthtech/CallBridge-Releases/releases/latest">Latest release</a><a href="https://github.com/ithealthtech/CallBridge-Releases/releases">All releases</a></div>
+      <div><h3>Company</h3><p class="footer-note">&copy; <span data-current-year></span> IT Health Tech LLC</p></div>
+    </div>
+  </footer>
+
+  <div class="sr-only" aria-live="polite" data-live-region></div>
+</body>
+</html>
