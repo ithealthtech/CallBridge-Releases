@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.15.1",
+    [string]$Version = "0.15.2",
     [switch]$SkipPublish
 )
 
@@ -90,8 +90,8 @@ function Add-FileComponentXml {
         $DirectoryXml.Add("        <Component Id=""$componentId"" Guid=""*"">")
         if ($relative -ieq "publish\desktop\CallBridge.Desktop.exe") {
             $DirectoryXml.Add("          <File Id=""$fileId"" Source=""$source"" Name=""$name"" KeyPath=""yes"">")
-            $DirectoryXml.Add("            <Shortcut Id=""StartMenuShortcut"" Directory=""ProgramMenuFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon"" WorkingDirectory=""$DirectoryId"" />")
-            $DirectoryXml.Add("            <Shortcut Id=""DesktopShortcut"" Directory=""DesktopFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("            <Shortcut Id=""StartMenuShortcut"" Directory=""ProgramMenuFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon.ico"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("            <Shortcut Id=""DesktopShortcut"" Directory=""DesktopFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon.ico"" WorkingDirectory=""$DirectoryId"" />")
             $DirectoryXml.Add("          </File>")
         }
         else {
@@ -169,8 +169,8 @@ $wxs = @"
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of CallBridge is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Icon Id="CallBridgeIcon" SourceFile="$AppIconXml" />
-    <Property Id="ARPPRODUCTICON" Value="CallBridgeIcon" />
+    <Icon Id="CallBridgeIcon.ico" SourceFile="$AppIconXml" />
+    <Property Id="ARPPRODUCTICON" Value="CallBridgeIcon.ico" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="CallBridge">
