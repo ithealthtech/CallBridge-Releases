@@ -1242,8 +1242,22 @@ internal static class Program
         AssertTransition(stateMachine, SipCallState.Idle, SipCallDirection.None, "");
         applyStatus.Invoke(window, new object[] { stateMachine.Current });
         DrainDispatcher(window.Dispatcher);
-        AssertCollapsed(window, "CallWorkspace", "in-call workspace after hang-up");
-        AssertVisible(window, "ListSection", "recent calls after hang-up");
+        // Wrap-up: the notes panel stays open after the caller hangs up so the tech can still save notes.
+        AssertVisible(window, "CallWorkspace", "wrap-up workspace after hang-up");
+        AssertVisible(window, "WrapUpBanner", "wrap-up banner after hang-up");
+        AssertVisible(window, "CloseWrapUpButton", "Done button during wrap-up");
+        AssertCollapsed(window, "ListSection", "recent calls during wrap-up");
+        if (Element(window, "CallNotesText") is not TextBox wrapUpNotes) throw new InvalidOperationException("Missing call notes box.");
+        wrapUpNotes.Text = "Followed up after the caller hung up.";
+        DrainDispatcher(window.Dispatcher);
+        var wrapUpPath = RenderWindowPreview(window, "callbridge-wrap-up.png");
+        Button(window, "CloseWrapUpButton").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        DrainDispatcher(window.Dispatcher);
+        AssertCollapsed(window, "CallWorkspace", "in-call workspace after finishing wrap-up");
+        AssertCollapsed(window, "WrapUpBanner", "wrap-up banner after finishing wrap-up");
+        AssertVisible(window, "ListSection", "recent calls after finishing wrap-up");
+        if (wrapUpNotes.Text.Length != 0) throw new InvalidOperationException("Finishing wrap-up should clear the notes box.");
+        _ = wrapUpPath;
         return outputPath;
     }
 

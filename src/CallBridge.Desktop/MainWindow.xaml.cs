@@ -59,6 +59,7 @@ public partial class MainWindow : Window
     private readonly WindowsRingtonePlayer _ringer = new();
     private string? _sipCallId;
     private UpdateInfo? _availableUpdate;
+    private bool _wrapUpActive;
     private bool _installingUpdate;
     private bool _checkingForUpdates;
     private DateTimeOffset? _lastUpdateCheck;
@@ -480,6 +481,7 @@ public partial class MainWindow : Window
         };
         NewCallTicketButton.Click += async (_, _) => await CreateTicketForCallAsync();
         SaveCallNoteButton.Click += async (_, _) => await SaveCallNoteAsync();
+        CloseWrapUpButton.Click += (_, _) => EndWrapUp();
         CallTicketPicker.SelectionChanged += (_, _) => UpdateCallNoteState();
         CallNotesText.TextChanged += (_, _) =>
         {
@@ -494,6 +496,7 @@ public partial class MainWindow : Window
         SetControlMetadata(CallTicketPicker, "Log to ticket", "ConnectWise ticket that call notes are saved to.");
         SetControlMetadata(OpenCallTicketButton, "Open ticket in ConnectWise", "Open the selected ticket in ConnectWise.");
         SetControlMetadata(NewCallTicketButton, "New ticket", "Create a ConnectWise ticket for this caller's company.");
+        SetControlMetadata(CloseWrapUpButton, "Finish wrap-up", "Finish this call and return to Home.");
         SetControlMetadata(CallNotesText, "Call notes", "Notes for this call. They are saved to the selected ticket.");
         SetControlMetadata(SaveCallNoteButton, "Save note now", "Save these notes to the selected ConnectWise ticket as an internal note.");
     }
@@ -501,6 +504,12 @@ public partial class MainWindow : Window
     /// <summary>Resets the in-call workspace for a new call and starts the caller lookup it shares with the screen pop.</summary>
     private void BeginCallContext(string callerLabel, string number)
     {
+        if (_wrapUpActive)
+        {
+            _wrapUpActive = false;
+            WrapUpBanner.Visibility = Visibility.Collapsed;
+            CloseWrapUpButton.Visibility = Visibility.Collapsed;
+        }
         _callContextCts?.Cancel();
         _callContextCts?.Dispose();
         var source = new CancellationTokenSource();
@@ -650,8 +659,10 @@ public partial class MainWindow : Window
         try
         {
             await AddTicketNoteAsync(ticket.Id, note);
-            _lastSavedNote = note;
-            CallNoteStatusText.Text = $"Saved as an internal note on #{TicketNumber(ticket.Id)} at {DateTime.Now:h:mm tt}.";
+            // Clear the box so a second save adds a new note instead of repeating what was already saved.
+            CallNotesText.Clear();
+            _lastSavedNote = "";
+            CallNoteStatusText.Text = $"Saved as an internal note on #{TicketNumber(ticket.Id)} at {DateTime.Now:h:mm tt}. Type again to add another note.";
         }
         catch (Exception ex)
         {
@@ -676,25 +687,68 @@ public partial class MainWindow : Window
         _callContext?.Tickets.FirstOrDefault(ticket => ticket.Id == ticketId)?.DisplayNumber
         ?? (ConnectWisePlatformClient.IsPlatformId(ticketId) ? ticketId[..8] : ticketId);
 
-    /// <summary>Keeps notes from being lost when a call ends: saves them to the chosen ticket, or copies them to the clipboard.</summary>
+    /// <summary>
+    /// Saves whatever the tech already typed to the chosen ticket as the call ends. Notes with no ticket stay in
+    /// the box during wrap-up, so nothing is lost and nothing is silently moved to the clipboard.
+    /// </summary>
     private void PreserveCallNotesOnEnd()
     {
         var note = CallNotesText.Text.Trim();
         if (note.Length == 0 || note == _lastSavedNote) return;
         if (CallTicketPicker.SelectedItem is CallTicketChoice { Id.Length: > 0 } ticket && ConnectWiseTicketing.IsConfigured(_settings))
-        {
             _ = SaveNotesAfterCallAsync(ticket.Id, note);
-            return;
-        }
-        try
+    }
+
+    /// <summary>
+    /// After the other side hangs up, the notes panel stays open so the tech can still choose a ticket, type more,
+    /// and save. It closes when the tech clicks Done, or when the next call starts.
+    /// </summary>
+    private void BeginWrapUp()
+    {
+        _callContextCts?.Cancel();
+        _callContextCts?.Dispose();
+        _callContextCts = null;
+        _callContextTask = null;
+        _callConnectedAt = null;
+        _callTimer.Stop();
+        TransferPanel.Visibility = Visibility.Collapsed;
+        ParkPanel.Visibility = Visibility.Collapsed;
+        _wrapUpActive = true;
+        WrapUpBanner.Visibility = Visibility.Visible;
+        CloseWrapUpButton.Visibility = Visibility.Visible;
+        WrapUpBannerText.Text = CallTicketPicker.Items.Count > 1
+            ? "Call ended. You can still choose a ticket, add notes, and save them. Click Done when you're finished."
+            : "Call ended. You can still add notes to a ticket here, or create one. Click Done when you're finished.";
+        CallStateText.Text = "CALL ENDED - WRAP UP";
+        ApplyHomeLayout();
+        UpdateCallNoteState();
+        CallNotesText.Focus();
+    }
+
+    /// <summary>Closes wrap-up. Unsaved notes with no ticket are copied to the clipboard rather than dropped.</summary>
+    private void EndWrapUp()
+    {
+        if (!_wrapUpActive) return;
+        var note = CallNotesText.Text.Trim();
+        var hasTicket = CallTicketPicker.SelectedItem is CallTicketChoice { Id.Length: > 0 };
+        if (note.Length > 0 && note != _lastSavedNote && !hasTicket)
         {
-            Clipboard.SetText(note);
-            ShowBanner("Call notes weren't linked to a ticket, so they were copied to your clipboard.", WarnHex);
+            try
+            {
+                Clipboard.SetText(note);
+                ShowBanner("Those notes weren't linked to a ticket, so they were copied to your clipboard.", WarnHex);
+            }
+            catch (Exception ex) when (ex is COMException or ExternalException)
+            {
+                ShowBanner("Those notes weren't linked to a ticket and couldn't be copied to the clipboard.", WarnHex);
+            }
         }
-        catch (Exception ex) when (ex is COMException or ExternalException)
-        {
-            ShowBanner("Call notes weren't linked to a ticket and couldn't be copied to the clipboard.", WarnHex);
-        }
+        _wrapUpActive = false;
+        WrapUpBanner.Visibility = Visibility.Collapsed;
+        CloseWrapUpButton.Visibility = Visibility.Collapsed;
+        ResetCallWorkspace();
+        ApplyHomeLayout();
+        UpdateCallNoteState();
     }
 
     private async Task SaveNotesAfterCallAsync(string ticketId, string note)
@@ -702,6 +756,11 @@ public partial class MainWindow : Window
         try
         {
             await AddTicketNoteAsync(ticketId, note);
+            if (CallNotesText.Text.Trim() == note)
+            {
+                CallNotesText.Clear();
+                _lastSavedNote = "";
+            }
             ShowBanner($"Call notes were saved to ticket #{TicketNumber(ticketId)}.", GoodHex);
         }
         catch (Exception ex)
@@ -768,7 +827,7 @@ public partial class MainWindow : Window
     {
         var sipStatus = _sip.CurrentCall;
         var pendingIncoming = sipStatus.HasPendingIncomingCall || _sip.CurrentWaitingCall.HasPendingCall;
-        var inCall = (_activeCallId is not null || _sipCallId is not null || sipStatus.State is not (SipCallState.Idle or SipCallState.Failed)) && !pendingIncoming;
+        var inCall = ((_activeCallId is not null || _sipCallId is not null || sipStatus.State is not (SipCallState.Idle or SipCallState.Failed)) || _wrapUpActive) && !pendingIncoming;
         var more = _listTitle == MoreListTitle;
         var width = ActualWidth > 0 ? ActualWidth : Width;
         var twoColumns = !inCall && !more && width >= TwoColumnMinWidth;
@@ -3166,7 +3225,7 @@ public partial class MainWindow : Window
     {
         PreserveCallNotesOnEnd();
         OfferTimeEntryDraft();
-        ResetCallWorkspace();
+        BeginWrapUp();
         _activeCallId = null;
         _sipCallId = null;
         _sipCallDirection = SipCallDirection.None;

@@ -292,6 +292,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
@@ -324,7 +325,11 @@
                                 </StackPanel>
                             </Border>
 
-                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                            <Border x:Name="WrapUpBanner" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource Accent}" BorderThickness="1" CornerRadius="8" Padding="10,7" Margin="0,0,0,10">
+                                <TextBlock x:Name="WrapUpBannerText" Text="Call ended. You can still pick a ticket and add notes." FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                            </Border>
+
+                            <Grid Grid.Row="2" Margin="0,0,0,10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
@@ -343,11 +348,12 @@
                                 <Button x:Name="NewCallTicketButton" Grid.Column="3" Content="+ New ticket" Style="{StaticResource ToolbarButton}" Margin="6,0,0,0"/>
                             </Grid>
 
-                            <TextBox x:Name="CallNotesText" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MinHeight="120" Padding="10"/>
-                            <TextBlock x:Name="CallNotesPlaceholder" Grid.Row="2" Text="Call notes" Foreground="{DynamicResource Muted}" Margin="12,10,0,0" IsHitTestVisible="False"/>
+                            <TextBox x:Name="CallNotesText" Grid.Row="3" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MinHeight="120" Padding="10"/>
+                            <TextBlock x:Name="CallNotesPlaceholder" Grid.Row="3" Text="Call notes" Foreground="{DynamicResource Muted}" Margin="12,10,0,0" IsHitTestVisible="False"/>
 
-                            <DockPanel Grid.Row="3" Margin="0,10,0,0">
+                            <DockPanel Grid.Row="4" Margin="0,10,0,0">
                                 <Button x:Name="SaveCallNoteButton" DockPanel.Dock="Right" Content="Save note now" Style="{StaticResource PrimaryButton}"/>
+                                <Button x:Name="CloseWrapUpButton" DockPanel.Dock="Right" Visibility="Collapsed" Content="Done" Style="{StaticResource ToolbarButton}" Margin="0,0,6,0" ToolTip="Finish this call and go back to Home" AutomationProperties.Name="Finish wrap-up"/>
                                 <TextBlock x:Name="CallNoteStatusText" Text="Notes are saved to the selected ticket when you save or hang up." Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
                             </DockPanel>
                         </Grid>
