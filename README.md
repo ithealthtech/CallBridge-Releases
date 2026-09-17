@@ -126,3 +126,7 @@ Settings > ConnectWise > **Ticketing connection** chooses which ConnectWise API 
 - **Platform, with PSA contact lookup**: tickets and notes on Platform; the contact directory syncs from PSA. PSA company IDs are matched to Platform companies by linked external ID, then by exact name.
 
 Platform API limits, per ConnectWise's published API: there are no time entries (confirmed call time is saved as a partner-only note on the ticket), no contact search (callers are matched on each company's main number and primary contact, plus contacts imported into CallBridge), and no ticket web links. Notes and time always go to the API that owns the ticket: numeric IDs are PSA, UUIDs are Platform.
+
+## End-user documentation
+
+The technician and admin quick start guide is published at <https://ithealthtech.github.io/CallBridge-Releases/> from the public [CallBridge-Releases](https://github.com/ithealthtech/CallBridge-Releases) repository (`pages/` and `docs/quick-start.md`). Update it there when settings or features change.
