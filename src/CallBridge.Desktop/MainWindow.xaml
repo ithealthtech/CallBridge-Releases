@@ -1,420 +1,703 @@
 <Window x:Class="CallBridge.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="CallBridge" Height="780" Width="1240" MinHeight="640" MinWidth="820"
-        WindowStartupLocation="CenterScreen" Background="#F3F8FC" Foreground="#102033"
-        FontFamily="Segoe UI">
+        Title="CallBridge" Height="680" Width="880" MinHeight="520" MinWidth="520"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource Ground}" Foreground="{DynamicResource Ink}"
+        FontFamily="{DynamicResource UiFont}" FontSize="13" UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
     <Window.Resources>
-        <SolidColorBrush x:Key="Ink" Color="#102033"/>
-        <SolidColorBrush x:Key="Muted" Color="#65788C"/>
-        <SolidColorBrush x:Key="Line" Color="#D5E4EC"/>
-        <SolidColorBrush x:Key="Panel" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="PanelSoft" Color="#F7FBFE"/>
-        <SolidColorBrush x:Key="Brand" Color="#087EB3"/>
-        <SolidColorBrush x:Key="BrandDark" Color="#0B5E86"/>
-        <SolidColorBrush x:Key="Accent" Color="#2FB7C7"/>
-        <SolidColorBrush x:Key="Success" Color="#31B78D"/>
-        <SolidColorBrush x:Key="Warning" Color="#DFAE4B"/>
-        <SolidColorBrush x:Key="Danger" Color="#C95669"/>
-        <DropShadowEffect x:Key="SoftShadow" Color="#6C8EA0" BlurRadius="24" ShadowDepth="6" Opacity=".18"/>
-
-        <Style TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="13,9"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Root"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="8"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#EAF7FC"/>
-                                <Setter TargetName="Root" Property="BorderBrush" Value="#83CADA"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#DDF1F8"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value=".45"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="NavButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Padding" Value="13,11"/>
-            <Setter Property="Margin" Value="0,2"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
-
-        <Style x:Key="DialButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="MinWidth" Value="70"/>
-            <Setter Property="MinHeight" Value="54"/>
-            <Setter Property="Margin" Value="5"/>
-            <Setter Property="FontSize" Value="16"/>
-            <Setter Property="Background" Value="#F7FCFE"/>
-            <Setter Property="BorderBrush" Value="#D2E6EF"/>
-        </Style>
-
-        <Style x:Key="PanelBorder" TargetType="Border">
-            <Setter Property="Background" Value="{StaticResource Panel}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource Line}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Effect" Value="{StaticResource SoftShadow}"/>
-        </Style>
-
-        <Style x:Key="MetricCard" TargetType="Border" BasedOn="{StaticResource PanelBorder}">
-            <Setter Property="Padding" Value="18"/>
-            <Setter Property="Effect" Value="{x:Null}"/>
-        </Style>
-
-        <Style TargetType="ComboBox">
-            <Setter Property="Padding" Value="8,4"/>
-            <Setter Property="BorderBrush" Value="#C8DEE8"/>
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
-        </Style>
-
-        <Style TargetType="TextBox">
-            <Setter Property="Padding" Value="10"/>
-            <Setter Property="BorderBrush" Value="#C8DEE8"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="#FBFEFF"/>
-            <Setter Property="Foreground" Value="{StaticResource Ink}"/>
-        </Style>
-
-        <Style x:Key="SoftListItem" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="ItemRoot" CornerRadius="8">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="ItemRoot" Property="Background" Value="#E9F7FC"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <DataTemplate x:Key="RowItemTemplate">
-            <Border BorderBrush="#D7E7EF" BorderThickness="1" CornerRadius="8" Padding="14" MinHeight="64">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#FFFFFF" Offset="0"/>
-                        <GradientStop Color="#F5FBFE" Offset="1"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="42"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto" MinWidth="78"/>
-                    </Grid.ColumnDefinitions>
-                    <Border Width="34" Height="34" CornerRadius="8" BorderBrush="#AFDAE7" BorderThickness="1">
-                        <Border.Background>
-                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                <GradientStop Color="#E9F8FF" Offset="0"/>
-                                <GradientStop Color="#EEF9F8" Offset="1"/>
-                            </LinearGradientBrush>
-                        </Border.Background>
-                        <TextBlock Text="&#xE717;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource Brand}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis"/>
-                        <TextBlock Text="{Binding Detail}" FontSize="11" Foreground="{StaticResource Muted}" Margin="0,4,8,0" TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-                    <Border Grid.Column="2" CornerRadius="8" Background="#E8F6FB" BorderBrush="#CBE5EF" BorderThickness="1" Padding="10,5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="{Binding Action}" Foreground="{StaticResource BrandDark}" FontWeight="SemiBold" FontSize="11" TextTrimming="CharacterEllipsis"/>
-                    </Border>
-                </Grid>
-            </Border>
-        </DataTemplate>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/CallBridge.Desktop;component/Themes/CallBridgeTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Grid>
-        <Grid.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#F7FBFE" Offset="0"/>
-                <GradientStop Color="#EEF7FB" Offset=".55"/>
-                <GradientStop Color="#F5F8FB" Offset="1"/>
-            </LinearGradientBrush>
-        </Grid.Background>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition x:Name="SidebarColumn" Width="248" MinWidth="74"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-        <Border BorderBrush="#CADFE9" BorderThickness="0,0,1,0">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#FFFFFF" Offset="0"/>
-                    <GradientStop Color="#F2FAFD" Offset=".62"/>
-                    <GradientStop Color="#EAF4F8" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
-            <Grid x:Name="SidebarRoot" Margin="18">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+        <!-- Header: brand, tabs, phone status, register, settings -->
+        <Border Background="{DynamicResource Panel}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <StackPanel x:Name="BrandBlock" Margin="0,6,0,18">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="50"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Border Width="44" Height="44" CornerRadius="8" BorderBrush="#A9D7E5" BorderThickness="1">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#0E86BC" Offset="0"/>
-                                    <GradientStop Color="#26B3C1" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Border.Background>
-                            <Grid>
-                                <Image Source="Assets/ithealthtech-logo.png" Height="26" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="LogoText" Text="CB" Foreground="White" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
-                            </Grid>
-                        </Border>
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock x:Name="BrandTitle" Text="CALLBRIDGE" FontWeight="Bold" FontSize="15"/>
-                            <TextBlock x:Name="BrandSubtitle" Text="IT HEALTH TECHNOLOGIES" Foreground="{StaticResource Muted}" FontSize="9" Margin="0,4,0,0"/>
-                        </StackPanel>
-                    </Grid>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <Border x:Name="LogoTile" Width="24" Height="24" CornerRadius="5" Background="{DynamicResource Accent}">
+                        <Grid>
+                            <TextBlock x:Name="LogoText" Text="CB" Foreground="White" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Image x:Name="LogoImage" Visibility="Collapsed" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="BrandTitle" Text="CallBridge" FontSize="14" FontWeight="SemiBold" Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="160"/>
                 </StackPanel>
 
-                <Border Grid.Row="1" BorderBrush="#BFDDE8" BorderThickness="1" CornerRadius="8" Padding="13" Margin="0,0,0,14">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#F0FBFF" Offset="0"/>
-                            <GradientStop Color="#F7FAFC" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="PresenceDot" Width="10" Height="10" Fill="{StaticResource Accent}" Margin="0,4,10,0"/>
-                        <StackPanel x:Name="PresenceDetails">
-                            <TextBlock x:Name="PresenceText" Text="Available" FontWeight="SemiBold" FontSize="13"/>
-                            <TextBlock x:Name="ExtensionText" Text="Extension 201" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,3,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+                <StackPanel x:Name="NavTabs" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="HomeTabButton" Style="{StaticResource TabButton}" Content="Home"/>
+                    <Button x:Name="MoreTabButton" Style="{StaticResource TabButton}" Content="More"/>
+                </StackPanel>
 
-                <Grid Grid.Row="2">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="NavStack">
-                            <Button x:Name="DashboardButton" Style="{StaticResource NavButton}" Content="Dashboard"/>
-                            <Button x:Name="PhoneButton" Style="{StaticResource NavButton}" Content="Phone"/>
-                            <Button x:Name="ContactsButton" Style="{StaticResource NavButton}" Content="Contacts"/>
-                            <Button x:Name="HistoryButton" Style="{StaticResource NavButton}" Content="Call history"/>
-                            <Button x:Name="MspButton" Style="{StaticResource NavButton}" Content="ConnectWise"/>
-                            <Button x:Name="VoicemailButton" Style="{StaticResource NavButton}" Content="Voicemail"/>
-                            <Button x:Name="ParkingButton" Style="{StaticResource NavButton}" Content="Parking"/>
-                            <Button x:Name="RecordingsButton" Style="{StaticResource NavButton}" Content="Recordings"/>
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border x:Name="PresencePill" CornerRadius="14" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="10,4" Margin="0,0,8,0" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="PresenceDot" Width="8" Height="8" Fill="{DynamicResource Warn}" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="PresenceText" Text="Offline" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="120"/>
+                            <TextBlock x:Name="ExtensionText" Text="Ext 201" FontSize="12" Foreground="{DynamicResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="90"/>
                         </StackPanel>
-                    </ScrollViewer>
-                    <StackPanel Grid.Row="1" Margin="0,8,0,0">
-                        <Button x:Name="MessagesButton" Style="{StaticResource NavButton}" Content="More"/>
-                        <Button x:Name="SettingsButton" Style="{StaticResource NavButton}" Content="Settings"/>
-                    </StackPanel>
-                </Grid>
-
-                <StackPanel x:Name="SidebarStatus" Grid.Row="3" Margin="0,14,0,0">
-                    <TextBlock Text="PHONE STATUS" Foreground="{StaticResource Muted}" FontSize="9" FontWeight="SemiBold"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <Ellipse x:Name="StatusDot" Width="9" Height="9" Fill="{StaticResource Warning}" Margin="0,4,8,0"/>
-                        <TextBlock x:Name="StatusText" Text="Checking" Foreground="{StaticResource Muted}" FontSize="11"/>
-                    </StackPanel>
-                    <TextBlock x:Name="VersionText" Text="CallBridge" Foreground="#8796A4" FontSize="10" Margin="0,12,0,0"/>
+                    </Border>
+                    <Button x:Name="RegisterButton" Content="Register" Style="{StaticResource PrimaryButton}" Margin="0,0,4,0"/>
+                    <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Content="&#xE713;"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="74"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <!-- Inline status and service warnings -->
+        <Border x:Name="StatusBanner" Grid.Row="1" Visibility="Collapsed" Background="{DynamicResource Sunk}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="14,6">
+            <DockPanel>
+                <Button x:Name="StatusBannerDismissButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" MinHeight="28" Width="28" FontSize="11" Content="&#xE711;"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="{DynamicResource Good}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="StatusText" Text="Checking" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
 
-            <Border BorderBrush="#D7E6ED" BorderThickness="0,0,0,1" Background="#FBFEFF">
-                <Grid Margin="28,0">
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock x:Name="PageTitle" Text="Phone" FontWeight="SemiBold" FontSize="19"/>
-                        <TextBlock Text="Softphone workspace for SIP calling, ConnectWise context, and technician workflows" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,4,0,0"/>
+        <Grid x:Name="ContentHost" Grid.Row="2" Margin="14">
+            <!-- Home: left column (dial box, keypad, status cards), right column (recent calls / contact search).
+                 During a call the call bar and workspace span both columns. ApplyHomeLayout arranges the regions. -->
+            <Grid x:Name="HomeView">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="HomeLeftColumn" Width="292"/>
+                    <ColumnDefinition x:Name="HomeGapColumn" Width="14"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition x:Name="HomeGapRow" Height="12"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border x:Name="PhoneStrip" Style="{StaticResource Card}" Padding="12">
+                    <StackPanel>
+                        <Border x:Name="IncomingCallPanel" Visibility="Collapsed" Margin="0,0,0,10" Padding="10" Background="{DynamicResource AccentSoft}" BorderBrush="{DynamicResource Accent}" BorderThickness="1" CornerRadius="6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock x:Name="IncomingCallLabel" Text="Incoming call" Style="{StaticResource SectionLabel}"/>
+                                    <TextBlock x:Name="IncomingCallerText" Text="Unknown caller" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Button x:Name="DeclineCallButton" Content="Decline" Style="{StaticResource DangerButton}" Margin="0,0,6,0" MinWidth="76" ToolTip="Decline the incoming call." AutomationProperties.Name="Decline incoming call"/>
+                                    <Button x:Name="AnswerCallButton" Content="Answer" Style="{StaticResource GoodButton}" MinWidth="76" ToolTip="Answer the incoming call." AutomationProperties.Name="Answer incoming call"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Idle: search/dial box over a full-width Call button. In a call: caller, status, timer and call controls. -->
+                        <Grid x:Name="CallRow">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid x:Name="DialHost">
+                                <TextBox x:Name="DialText" FontSize="15" Padding="34,7,9,7"/>
+                                <TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" Foreground="{DynamicResource Muted}" Margin="12,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                <TextBlock x:Name="DialPlaceholder" Text="Search contacts or dial" Foreground="{DynamicResource Muted}" Margin="35,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                            <StackPanel x:Name="CallStatusRow" Visibility="Collapsed" VerticalAlignment="Center" Margin="2,0,12,0">
+                                <TextBlock x:Name="ActiveCallMetric" Text="None" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                                    <TextBlock x:Name="CallCompanyText" Text="" Foreground="{DynamicResource Muted}" FontSize="12" TextTrimming="CharacterEllipsis" MaxWidth="260"/>
+                                    <TextBlock x:Name="CallTimerText" Text="00:00" FontFamily="{StaticResource MonoFont}" Foreground="{DynamicResource Good}" FontSize="12" Margin="8,0,0,0"/>
+                                    <TextBlock x:Name="CallStateText" Text="READY" Style="{StaticResource SectionLabel}" Margin="8,1,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <UniformGrid x:Name="InCallControls" Grid.Column="1" Rows="1" Columns="5" Visibility="Collapsed" VerticalAlignment="Center">
+                                <Button x:Name="MuteButton" Content="Mute" Margin="0,0,6,0"/>
+                                <Button x:Name="HoldButton" Content="Hold" Margin="0,0,6,0"/>
+                                <Button x:Name="TransferButton" Content="Transfer" Margin="0,0,6,0"/>
+                                <Button x:Name="ParkButton" Content="Park" Margin="0,0,6,0"/>
+                                <Button x:Name="DtmfButton" Content="DTMF"/>
+                            </UniformGrid>
+                            <Button x:Name="KeypadToggleButton" Grid.Column="2" Style="{StaticResource IconButton}" Content="&#xE75F;" Margin="6,0,0,0" BorderBrush="{DynamicResource Line}" Width="40"/>
+                            <Button x:Name="CallButton" Grid.Column="3" Content="Call" Style="{StaticResource GoodButton}" MinWidth="96" Margin="6,0,0,0"/>
+                        </Grid>
+
+                        <Border x:Name="TimeEntryDraft" Visibility="Collapsed" Margin="0,10,0,0" Padding="12" Background="{DynamicResource Sunk}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <TextBlock Text="LOG CALL TIME" Style="{StaticResource SectionLabel}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <TextBox x:Name="TimeEntryMinutesText" Width="56" TextAlignment="Right" FontFamily="{StaticResource MonoFont}"/>
+                                    <TextBlock x:Name="TimeEntryTargetText" Text="min" VerticalAlignment="Center" Margin="8,0,0,0" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <TextBlock x:Name="TimeEntryDetailText" Text="" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                    <Button x:Name="DiscardTimeEntryButton" Content="Discard" Style="{StaticResource GhostButton}" Margin="0,0,6,0"/>
+                                    <Button x:Name="SaveTimeEntryButton" Content="Save time" Style="{StaticResource PrimaryButton}"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <UniformGrid x:Name="DialPad" Columns="3" Margin="0,10,0,0" HorizontalAlignment="Center" Visibility="Collapsed">
+                            <Button Style="{StaticResource DialButton}" Content="1"/>
+                            <Button Style="{StaticResource DialButton}" Content="2 ABC"/>
+                            <Button Style="{StaticResource DialButton}" Content="3 DEF"/>
+                            <Button Style="{StaticResource DialButton}" Content="4 GHI"/>
+                            <Button Style="{StaticResource DialButton}" Content="5 JKL"/>
+                            <Button Style="{StaticResource DialButton}" Content="6 MNO"/>
+                            <Button Style="{StaticResource DialButton}" Content="7 PQRS"/>
+                            <Button Style="{StaticResource DialButton}" Content="8 TUV"/>
+                            <Button Style="{StaticResource DialButton}" Content="9 WXYZ"/>
+                            <Button Style="{StaticResource DialButton}" Content="*"/>
+                            <Button Style="{StaticResource DialButton}" Content="0 +"/>
+                            <Button Style="{StaticResource DialButton}" Content="#"/>
+                        </UniformGrid>
                     </StackPanel>
-                    <WrapPanel HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <ComboBox x:Name="ProviderBox" Width="190" MinWidth="150" Height="36" Margin="0,0,10,0"/>
-                        <Button x:Name="RegisterButton" Content="Register" Background="#0E86BC" Foreground="White" BorderBrush="#0E86BC"/>
-                    </WrapPanel>
-                </Grid>
-            </Border>
+                </Border>
 
-            <Grid x:Name="ContentHost" Grid.Row="1" Margin="28">
-                <Grid x:Name="PhoneView">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition x:Name="DialerColumn" Width="376" MinWidth="300"/>
-                        <ColumnDefinition x:Name="PhoneGapColumn" Width="20"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                <!-- Status cards: phone, voicemail, and call parking at a glance -->
+                <ScrollViewer x:Name="StatusCards" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel>
+                        <Border Style="{StaticResource Card}" Padding="12" Margin="0,0,0,10">
+                            <DockPanel>
+                                <Ellipse x:Name="PhoneCardDot" DockPanel.Dock="Left" Width="10" Height="10" Margin="0,0,10,0" VerticalAlignment="Center" Fill="{DynamicResource Muted}"/>
+                                <TextBlock x:Name="PhoneCardDetailText" DockPanel.Dock="Right" Text="" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="PHONE" Style="{StaticResource SectionLabel}"/>
+                                    <TextBlock x:Name="PhoneCardStatusText" Text="Offline" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Padding="12" Margin="0,0,0,10">
+                            <DockPanel>
+                                <Button x:Name="VoicemailCardCallButton" DockPanel.Dock="Right" Content="Call" Style="{StaticResource ToolbarButton}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="VoicemailCardCountText" DockPanel.Dock="Left" Text="–" FontSize="22" FontWeight="SemiBold" MinWidth="30" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="VOICEMAIL" Style="{StaticResource SectionLabel}"/>
+                                    <TextBlock x:Name="VoicemailCardDetailText" Text="Waiting for status" FontSize="12" Foreground="{DynamicResource Muted}" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Padding="12">
+                            <StackPanel>
+                                <TextBlock Text="CALL PARKING" Style="{StaticResource SectionLabel}"/>
+                                <StackPanel x:Name="ParkCardSlots" Margin="0,4,0,0"/>
+                                <TextBlock x:Name="ParkCardEmptyText" Text="No park slots set up" FontSize="12" Foreground="{DynamicResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
 
-                    <Border Style="{StaticResource PanelBorder}" Padding="24">
-                        <Grid>
+                <Border x:Name="ListSection" Grid.Column="2" Grid.RowSpan="3" Style="{StaticResource Card}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <DockPanel Margin="14,12,8,8">
+                            <StackPanel x:Name="ListActionsPanel" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="CreateTicketButton" Style="{StaticResource GhostButton}" Content="&#xE710;" FontFamily="{StaticResource IconFont}" FontWeight="Normal" Width="34" Padding="0"/>
+                                <Button x:Name="ExportHistoryButton" Style="{StaticResource GhostButton}" Content="&#xEDE1;" FontFamily="{StaticResource IconFont}" FontWeight="Normal" Width="34" Padding="0"/>
+                                <Button x:Name="RefreshRowsButton" Style="{StaticResource GhostButton}" Content="&#xE72C;" FontFamily="{StaticResource IconFont}" FontWeight="Normal" Width="34" Padding="0"/>
+                            </StackPanel>
+                            <StackPanel x:Name="ListHeaderBlock" VerticalAlignment="Center">
+                                <TextBlock x:Name="ListHeading" Text="Recent calls" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="ListSubheading" Text="Your latest inbound, outbound, and missed calls" Style="{StaticResource SectionLabel}" FontSize="12" Margin="0,1,0,0"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <ListBox x:Name="RowsList" Grid.Row="1" Margin="4,0,4,4" BorderThickness="0" Background="Transparent"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ItemTemplate="{StaticResource RowItemTemplate}" ItemContainerStyle="{StaticResource RowListItem}"/>
+                    </Grid>
+                </Border>
+
+                <!-- In a call: contact and tickets on the left, transfer, ticket and notes on the right (mockup in-call screen). -->
+                <Border x:Name="CallWorkspace" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource Card}" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="CallSideColumn" Width="260"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Border Background="{DynamicResource Sunk}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,1,0" CornerRadius="8,0,0,8">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel Margin="14">
+                                    <TextBlock Text="CONTACT" Style="{StaticResource SectionLabel}"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="Company" Foreground="{DynamicResource Muted}" Margin="0,0,12,4"/>
+                                        <TextBlock x:Name="CallCompanyValue" Grid.Column="1" Text="—" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+                                        <TextBlock Grid.Row="1" Text="Contact" Foreground="{DynamicResource Muted}" Margin="0,0,12,4"/>
+                                        <TextBlock x:Name="CallContactValue" Grid.Row="1" Grid.Column="1" Text="—" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+                                        <TextBlock Grid.Row="2" Text="Number" Foreground="{DynamicResource Muted}" Margin="0,0,12,4"/>
+                                        <TextBlock x:Name="CallNumberValue" Grid.Row="2" Grid.Column="1" Text="—" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
+                                    </Grid>
+
+                                    <TextBlock Text="OPEN TICKETS" Style="{StaticResource SectionLabel}" Margin="0,14,0,4"/>
+                                    <StackPanel x:Name="CallTicketsPanel"/>
+                                    <TextBlock x:Name="CallTicketsNote" Text="Looking up the caller…" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
+
+                                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                        <Ellipse Width="8" Height="8" Fill="{DynamicResource Good}" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="CallQualityText" Text="Waiting for call-quality data" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" MaxWidth="210"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Border>
+
+                        <Grid Grid.Column="1" Margin="14">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <Border BorderBrush="#BFDDE8" BorderThickness="1" CornerRadius="8" Padding="12">
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                        <GradientStop Color="#EAF8FF" Offset="0"/>
-                                        <GradientStop Color="#EFFBFA" Offset="1"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
-                                <Grid>
-                                    <TextBlock Text="LIVE PHONE" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Left"/>
-                                    <TextBlock x:Name="CallStateText" Text="READY" Foreground="{StaticResource Brand}" FontSize="10" FontWeight="SemiBold" HorizontalAlignment="Right"/>
-                                </Grid>
-                            </Border>
-
-                            <TextBox x:Name="DialText" Grid.Row="1" TextAlignment="Center" FontSize="30" Margin="0,18,0,16" BorderThickness="0,0,0,1" FontWeight="SemiBold"/>
-
-                            <UniformGrid x:Name="DialPad" Grid.Row="2" Columns="3" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <Button Style="{StaticResource DialButton}" Content="1"/>
-                                <Button Style="{StaticResource DialButton}" Content="2 ABC"/>
-                                <Button Style="{StaticResource DialButton}" Content="3 DEF"/>
-                                <Button Style="{StaticResource DialButton}" Content="4 GHI"/>
-                                <Button Style="{StaticResource DialButton}" Content="5 JKL"/>
-                                <Button Style="{StaticResource DialButton}" Content="6 MNO"/>
-                                <Button Style="{StaticResource DialButton}" Content="7 PQRS"/>
-                                <Button Style="{StaticResource DialButton}" Content="8 TUV"/>
-                                <Button Style="{StaticResource DialButton}" Content="9 WXYZ"/>
-                                <Button Style="{StaticResource DialButton}" Content="*"/>
-                                <Button Style="{StaticResource DialButton}" Content="0 +"/>
-                                <Button Style="{StaticResource DialButton}" Content="#"/>
-                            </UniformGrid>
-
-                            <Button x:Name="CallButton" Grid.Row="3" Content="Call" Foreground="White" BorderThickness="0" FontWeight="SemiBold" Padding="15" Margin="0,18,0,0" Background="#31B78D"/>
-
-                            <UniformGrid Grid.Row="4" Columns="4" Margin="0,10,0,0">
-                                <Button x:Name="MuteButton" Content="Mute" Margin="3"/>
-                                <Button x:Name="HoldButton" Content="Hold" Margin="3"/>
-                                <Button x:Name="TransferButton" Content="Transfer" Margin="3"/>
-                                <Button x:Name="DtmfButton" Content="DTMF" Margin="3"/>
-                            </UniformGrid>
-                        </Grid>
-                    </Border>
-
-                    <Grid Grid.Column="2">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="18"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-
-                        <UniformGrid Columns="3">
-                            <Border Style="{StaticResource MetricCard}" Margin="0,0,10,0">
+                            <Border x:Name="ParkPanel" Visibility="Collapsed" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Registration" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="RegistrationMetric" Text="Not registered" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                                    <DockPanel>
+                                        <Button x:Name="CloseParkButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" FontSize="11" Content="&#xE711;" MinHeight="28" Width="28"/>
+                                        <TextBlock Text="PARK CALL" Style="{StaticResource SectionLabel}" VerticalAlignment="Center"/>
+                                    </DockPanel>
+                                    <WrapPanel x:Name="ParkSlotsPanel" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="ParkPanelMessageText" Text="" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource MetricCard}" Margin="0,0,10,0">
+                            <Border x:Name="TransferPanel" Visibility="Collapsed" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,12">
                                 <StackPanel>
-                                    <TextBlock Text="Active call" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="ActiveCallMetric" Text="None" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0"/>
+                                    <TextBlock Text="TRANSFER TO" Style="{StaticResource SectionLabel}"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="TransferTargetText"/>
+                                        <Button x:Name="BlindTransferButton" Grid.Column="1" Content="Blind transfer" Margin="6,0,0,0"/>
+                                        <Button x:Name="ConsultTransferButton" Grid.Column="2" Content="Consult first" Style="{StaticResource PrimaryButton}" Margin="6,0,0,0"/>
+                                        <Button x:Name="CloseTransferButton" Grid.Column="3" Style="{StaticResource IconButton}" FontSize="11" Content="&#xE711;" Margin="2,0,0,0"/>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
-                            <Border Style="{StaticResource MetricCard}">
-                                <StackPanel>
-                                    <TextBlock Text="Connector API" Foreground="{StaticResource Muted}" FontSize="10" FontWeight="SemiBold"/>
-                                    <TextBlock x:Name="ApiMetric" Text="Unknown" FontSize="19" FontWeight="SemiBold" Margin="0,7,0,0"/>
-                                </StackPanel>
-                            </Border>
-                        </UniformGrid>
 
-                        <Border Grid.Row="2" Style="{StaticResource PanelBorder}" Padding="22">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <DockPanel>
-                                    <TextBlock x:Name="PanelHeading" Text="Live directory" FontWeight="SemiBold" FontSize="20"/>
-                                    <Border DockPanel.Dock="Right" Background="#EEF7FB" BorderBrush="#D0E7EF" BorderThickness="1" CornerRadius="8" Padding="10,5">
-                                        <TextBlock Text="Double-click to dial" Foreground="{StaticResource BrandDark}" FontSize="11" FontWeight="SemiBold"/>
-                                    </Border>
-                                </DockPanel>
-                                <ListBox x:Name="MainList" Grid.Row="1" Margin="0,14,0,0" BorderThickness="0" Background="Transparent" ItemTemplate="{StaticResource RowItemTemplate}" ItemContainerStyle="{StaticResource SoftListItem}"/>
+                            <Grid Grid.Row="1" Margin="0,0,0,10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="LOG TO" Style="{StaticResource SectionLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <ComboBox x:Name="CallTicketPicker" Grid.Column="1" MinWidth="120">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Button x:Name="OpenCallTicketButton" Grid.Column="2" Content="Open in ConnectWise" Style="{StaticResource ToolbarButton}" Margin="6,0,0,0"/>
+                                <Button x:Name="NewCallTicketButton" Grid.Column="3" Content="+ New ticket" Style="{StaticResource ToolbarButton}" Margin="6,0,0,0"/>
                             </Grid>
-                        </Border>
-                    </Grid>
-                </Grid>
 
-                <Grid x:Name="ListView" Visibility="Collapsed">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="18"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <DockPanel LastChildFill="False">
-                        <StackPanel DockPanel.Dock="Left">
-                            <TextBlock x:Name="ListHeading" Text="Contacts" FontSize="31" FontWeight="SemiBold"/>
-                            <TextBlock x:Name="ListSubheading" Text="People and extensions" Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+                            <TextBox x:Name="CallNotesText" Grid.Row="2" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MinHeight="120" Padding="10"/>
+                            <TextBlock x:Name="CallNotesPlaceholder" Grid.Row="2" Text="Call notes" Foreground="{DynamicResource Muted}" Margin="12,10,0,0" IsHitTestVisible="False"/>
+
+                            <DockPanel Grid.Row="3" Margin="0,10,0,0">
+                                <Button x:Name="SaveCallNoteButton" DockPanel.Dock="Right" Content="Save note now" Style="{StaticResource PrimaryButton}"/>
+                                <TextBlock x:Name="CallNoteStatusText" Text="Notes are saved to the selected ticket when you save or hang up." Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
+                            </DockPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- Settings: Audio and Sign-in for everyone; Admin sections behind the admin PIN -->
+            <Grid x:Name="SettingsView" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="10"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Border x:Name="SettingsTabsBar" Style="{StaticResource Card}" Padding="4">
+                    <WrapPanel x:Name="SettingsTabsPanel">
+                        <Button x:Name="SettingsAudioTabButton" Style="{StaticResource SettingsTabButton}" Content="Audio" ToolTip="Choose your microphone, speaker, and ringtone" AutomationProperties.Name="Audio settings"/>
+                        <Button x:Name="SettingsSignInTabButton" Style="{StaticResource SettingsTabButton}" Content="Sign-in" ToolTip="Phone status, your ConnectWise member ID, and startup options" AutomationProperties.Name="Sign-in settings"/>
+                        <Border Width="1" Margin="8,6" Background="{DynamicResource Line}"/>
+                        <Button x:Name="SettingsAdminTabButton" Style="{StaticResource SettingsTabButton}" ToolTip="SIP, ConnectWise, and branding. Requires the admin PIN when one is set." AutomationProperties.Name="Admin settings">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE72E;" FontFamily="{StaticResource IconFont}" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Admin" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <StackPanel x:Name="AdminTabsPanel" Orientation="Horizontal" Visibility="Collapsed">
+                            <Button x:Name="SettingsGeneralTabButton" Style="{StaticResource SettingsTabButton}" Content="Phone account" ToolTip="Provider, extension, and caller ID" AutomationProperties.Name="Phone account settings"/>
+                            <Button x:Name="SettingsSipTabButton" Style="{StaticResource SettingsTabButton}" Content="SIP" ToolTip="Open SIP account settings" AutomationProperties.Name="SIP settings"/>
+                            <Button x:Name="SettingsConnectWiseTabButton" Style="{StaticResource SettingsTabButton}" Content="ConnectWise" ToolTip="Open ConnectWise integration and directory settings" AutomationProperties.Name="ConnectWise settings"/>
+                            <Button x:Name="SettingsAppTabButton" Style="{StaticResource SettingsTabButton}" Content="Branding &amp; security" ToolTip="Branding and the admin PIN" AutomationProperties.Name="Branding and security settings"/>
+                            <Button x:Name="SettingsLockButton" Style="{StaticResource SettingsTabButton}" ToolTip="Lock admin settings" AutomationProperties.Name="Lock admin settings">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72E;" FontFamily="{StaticResource IconFont}" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Lock" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                         </StackPanel>
-                        <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" MaxWidth="800">
-                            <Button x:Name="SyncConnectWiseButton" Content="Sync ConnectWise" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="OpenCompanyButton" Content="Open company" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="CreateTicketButton" Content="New ticket" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="CallNoteButton" Content="Call notes" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="ExportHistoryButton" Content="Export CSV" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="AddContactButton" Content="Add contact" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="EditContactButton" Content="Edit" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="DeleteContactButton" Content="Delete" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="ImportContactsButton" Content="Import CSV" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="ClearContactsButton" Content="Clear imports" Padding="14,8" Margin="0,0,8,8"/>
-                            <Button x:Name="RefreshRowsButton" Content="Refresh" Padding="14,8" Margin="0,0,12,8"/>
-                            <TextBox x:Name="SearchBox" Width="240" Height="38" VerticalAlignment="Center"/>
-                        </WrapPanel>
+                    </WrapPanel>
+                </Border>
+
+                <ScrollViewer x:Name="SettingsScroller" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+                    <Grid x:Name="SettingsSections" MaxWidth="820" HorizontalAlignment="Stretch">
+                        <StackPanel x:Name="SettingsAudioSection">
+                            <Border Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <TextBlock Text="Audio" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock Text="Choose the microphone, speaker, and ringtone output used for calls." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,12"/>
+                                    <UniformGrid x:Name="SettingsAudioGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Microphone"/>
+                                            <ComboBox x:Name="SettingsMicrophoneBox" MinHeight="36" DisplayMemberPath="DisplayName" SelectedValuePath="Id" ToolTip="Microphone used for calls" AutomationProperties.Name="Call microphone"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Speaker"/>
+                                            <ComboBox x:Name="SettingsSpeakerBox" MinHeight="36" DisplayMemberPath="DisplayName" SelectedValuePath="Id" ToolTip="Speaker used for calls" AutomationProperties.Name="Call speaker"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Ringtone plays on"/>
+                                            <ComboBox x:Name="SettingsRingtoneSpeakerBox" MinHeight="36" DisplayMemberPath="DisplayName" SelectedValuePath="Id" ToolTip="Speaker used for incoming-call ringtone" AutomationProperties.Name="Ringtone speaker"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <WrapPanel Margin="4,2,4,0">
+                                        <Button x:Name="SettingsTestMicrophoneButton" Content="Test microphone" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Test the selected microphone" AutomationProperties.Name="Test selected microphone"/>
+                                        <Button x:Name="SettingsTestSpeakerButton" Content="Test speaker" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Play a tone through the selected speaker" AutomationProperties.Name="Test selected speaker"/>
+                                        <Button x:Name="SettingsTestRingtoneButton" Content="Test ringtone" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Test the selected ringtone speaker" AutomationProperties.Name="Test selected ringtone speaker"/>
+                                        <Button x:Name="SettingsRefreshAudioButton" Content="Refresh devices" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Refresh available microphones and speakers" AutomationProperties.Name="Refresh audio devices"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="SettingsAudioStatusText" Text="Audio devices are ready." Style="{StaticResource SettingsFieldLabel}" Margin="4,2,4,0" AutomationProperties.LiveSetting="Polite"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="SettingsSignInSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <DockPanel Margin="4,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Phone" Style="{StaticResource SettingsHeading}"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                            <Ellipse x:Name="SignInStatusDot" Width="8" Height="8" Fill="{DynamicResource Muted}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="SignInStatusText" Text="Offline" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="SignInExtensionText" Text="" Foreground="{DynamicResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <TextBlock Text="Use Register in the header to connect or disconnect the phone. Your admin manages the SIP account." Style="{StaticResource SettingsFieldLabel}" Margin="0,8,0,0"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="ConnectWise" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock Text="Call time you save is logged under this member." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,10"/>
+                                    <StackPanel Style="{StaticResource SettingsFieldGroup}" MaxWidth="380" HorizontalAlignment="Left">
+                                        <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Your member ID"/>
+                                        <TextBox x:Name="SettingsCwMemberText" MinWidth="260" ToolTip="Your ConnectWise member identifier, used when you log call time" AutomationProperties.Name="ConnectWise member ID"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Windows behavior" Style="{StaticResource SettingsHeading}" Margin="4,0,4,8"/>
+                                    <CheckBox x:Name="SettingsStartupCheckBox" Content="Launch when I sign in to Windows" Padding="8,7" ToolTip="Start CallBridge after Windows sign-in" AutomationProperties.Name="Launch when I sign in to Windows"/>
+                                    <CheckBox x:Name="SettingsTopmostCheckBox" Content="Keep CallBridge on top during active calls" Padding="8,7" ToolTip="Keep CallBridge above other windows while a call is active" AutomationProperties.Name="Keep on top during calls"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}">
+                                <DockPanel Margin="4,0">
+                                    <Button x:Name="SettingsCreateSupportBundleButton" DockPanel.Dock="Right" Content="Create support bundle" Style="{StaticResource ToolbarButton}" ToolTip="Create a sanitized ZIP for CallBridge support" AutomationProperties.Name="Create sanitized support bundle"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Support" Style="{StaticResource SettingsHeading}"/>
+                                        <TextBlock x:Name="VersionText" Text="CallBridge" Style="{StaticResource SectionLabel}" FontSize="12" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="SettingsLockedSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}" Padding="24">
+                                <StackPanel MaxWidth="380" HorizontalAlignment="Left">
+                                    <TextBlock Text="&#xE72E;" FontFamily="{StaticResource IconFont}" FontSize="22" Foreground="{DynamicResource Muted}"/>
+                                    <TextBlock Text="Admin settings are locked" Style="{StaticResource SettingsHeading}" Margin="0,10,0,2"/>
+                                    <TextBlock Text="SIP, ConnectWise, and branding are managed by your MSP admin. Enter the admin PIN to change them." Style="{StaticResource SettingsFieldLabel}" Margin="0,0,0,14"/>
+                                    <TextBlock Text="Admin PIN" Style="{StaticResource SettingsFieldLabel}"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="AdminPinEntryBox" ToolTip="Admin PIN" AutomationProperties.Name="Admin PIN"/>
+                                        <Button x:Name="UnlockAdminButton" Grid.Column="1" Content="Unlock" Style="{StaticResource PrimaryButton}" Margin="8,0,0,0" ToolTip="Unlock admin settings" AutomationProperties.Name="Unlock admin settings"/>
+                                    </Grid>
+                                    <TextBlock x:Name="AdminPinMessageText" Text="" Foreground="{DynamicResource Bad}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.LiveSetting="Assertive"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="SettingsGeneralSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <TextBlock Text="Phone account" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock Text="Choose the phone provider and identify this workstation." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,12"/>
+                                    <UniformGrid x:Name="SettingsGeneralGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Provider"/>
+                                            <ComboBox x:Name="SettingsProviderBox" MinHeight="36" ToolTip="Phone provider preset" AutomationProperties.Name="Provider"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Extension"/>
+                                            <TextBox x:Name="SettingsExtensionText" ToolTip="Your PBX extension" AutomationProperties.Name="Extension"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Outbound caller ID"/>
+                                            <TextBox x:Name="SettingsCallerIdText" ToolTip="Caller ID presented on outbound calls" AutomationProperties.Name="Outbound caller ID"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Voicemail access code"/>
+                                            <TextBox x:Name="SettingsVoicemailCodeText" ToolTip="Code dialed to reach voicemail, for example *97" AutomationProperties.Name="Voicemail access code"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Park slots"/>
+                                            <TextBox x:Name="SettingsParkSlotsText" ToolTip="Park slot numbers, for example 701-705 or 701, 702" AutomationProperties.Name="Park slots"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Park code (any open slot)"/>
+                                            <TextBox x:Name="SettingsParkCodeText" ToolTip="Optional code that parks a call in the next open slot" AutomationProperties.Name="Park code"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Pickup prefix"/>
+                                            <TextBox x:Name="SettingsParkPickupPrefixText" ToolTip="Optional digits dialed before a slot number to pick up a parked call" AutomationProperties.Name="Park pickup prefix"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel x:Name="SettingsSipSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <TextBlock Text="SIP account" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock Text="Registrar credentials from your PBX provider. They are stored for this Windows user with Windows data protection." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,12"/>
+                                    <UniformGrid x:Name="SettingsSipGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="SIP server or domain"/>
+                                            <TextBox x:Name="SettingsSipServerText" ToolTip="SIP registrar server or domain" AutomationProperties.Name="SIP server or domain"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="SIP username"/>
+                                            <TextBox x:Name="SettingsSipUsernameText" ToolTip="SIP extension username" AutomationProperties.Name="SIP username"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="SIP password"/>
+                                            <PasswordBox x:Name="SettingsSipPassword" ToolTip="SIP account password" AutomationProperties.Name="SIP password"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Transport"/>
+                                            <ComboBox x:Name="SettingsSipTransportBox" MinHeight="36" ToolTip="SIP signaling transport supplied by your provider" AutomationProperties.Name="SIP transport"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Codec profile"/>
+                                            <ComboBox x:Name="SettingsSipCodecProfileBox" MinHeight="36" ToolTip="Audio codecs offered to the phone provider" AutomationProperties.Name="SIP codec profile"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <TextBlock Text="G.729 is not offered because this build does not include an approved licensed G.729 media component." Style="{StaticResource SettingsFieldLabel}" Margin="4,2,4,8"/>
+                                    <Border Background="{DynamicResource AccentSoft}" CornerRadius="6" Padding="10" Margin="4,0">
+                                        <TextBlock Text="After saving, select Register in the header. No tenant-specific domain or credential is included in the app." TextWrapping="Wrap"/>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="SettingsConnectWiseSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <DockPanel Margin="4,0,4,12">
+                                        <Button x:Name="SettingsTestPsaButton" DockPanel.Dock="Right" Content="Test PSA" Style="{StaticResource ToolbarButton}" ToolTip="Test ConnectWise PSA API member credentials" AutomationProperties.Name="Test ConnectWise PSA"/>
+                                        <StackPanel>
+                                            <TextBlock Text="PSA API member" Style="{StaticResource SettingsHeading}"/>
+                                            <TextBlock Text="Caller lookup, open tickets, companies, and ticket creation." Style="{StaticResource SettingsFieldLabel}" Margin="0,2,12,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <UniformGrid x:Name="SettingsCwPsaGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Site URL"/>
+                                            <TextBox x:Name="SettingsCwSiteText" ToolTip="ConnectWise PSA site URL" AutomationProperties.Name="ConnectWise site URL"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Company ID"/>
+                                            <TextBox x:Name="SettingsCwCompanyText" ToolTip="ConnectWise company ID" AutomationProperties.Name="ConnectWise company ID"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Public key"/>
+                                            <TextBox x:Name="SettingsCwPublicText" ToolTip="ConnectWise API member public key" AutomationProperties.Name="ConnectWise public key"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Private key"/>
+                                            <PasswordBox x:Name="SettingsCwPrivateKey" ToolTip="ConnectWise API member private key" AutomationProperties.Name="ConnectWise private key"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Client ID"/>
+                                            <TextBox x:Name="SettingsCwClientIdText" ToolTip="ConnectWise integration client ID" AutomationProperties.Name="ConnectWise client ID"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Default service board ID"/>
+                                            <TextBox x:Name="SettingsCwBoardIdText" ToolTip="Numeric ConnectWise service board ID" AutomationProperties.Name="Default service board ID"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Contact directory" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock Text="Callers are matched and searched against this directory." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,10"/>
+                                    <WrapPanel Margin="4,0">
+                                        <Button x:Name="SyncConnectWiseButton" Content="Sync ConnectWise contacts" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6"/>
+                                        <Button x:Name="ImportContactsButton" Content="Import CSV" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6"/>
+                                        <Button x:Name="AddContactButton" Content="Add contact" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6"/>
+                                        <Button x:Name="ClearContactsButton" Content="Clear imported contacts" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" Foreground="{DynamicResource Bad}"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="DirectoryStatusText" Text="" Style="{StaticResource SettingsFieldLabel}" Margin="4,2,4,0" AutomationProperties.LiveSetting="Polite"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <DockPanel Margin="4,0,4,12">
+                                        <Button x:Name="SettingsTestPlatformButton" DockPanel.Dock="Right" Content="Test OAuth" Style="{StaticResource ToolbarButton}" ToolTip="Test ConnectWise Platform OAuth credentials" AutomationProperties.Name="Test ConnectWise Platform OAuth"/>
+                                        <StackPanel>
+                                            <TextBlock Text="Platform OAuth" Style="{StaticResource SettingsHeading}"/>
+                                            <TextBlock Text="Developer access for platform APIs." Style="{StaticResource SettingsFieldLabel}" Margin="0,2,12,0"/>
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <UniformGrid x:Name="SettingsCwPlatformGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Platform API URL or region"/>
+                                            <ComboBox x:Name="SettingsCwPlatformBaseBox" MinHeight="36" IsEditable="True" ToolTip="ConnectWise Platform API region" AutomationProperties.Name="Platform API URL or region"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="OAuth client ID"/>
+                                            <TextBox x:Name="SettingsCwPlatformClientIdText" ToolTip="ConnectWise Platform OAuth client ID" AutomationProperties.Name="OAuth client ID"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="OAuth client secret"/>
+                                            <PasswordBox x:Name="SettingsCwPlatformSecret" ToolTip="ConnectWise Platform OAuth client secret" AutomationProperties.Name="OAuth client secret"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Scopes"/>
+                                            <TextBox x:Name="SettingsCwPlatformScopesText" ToolTip="Space-separated ConnectWise Platform scopes" AutomationProperties.Name="OAuth scopes"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="SettingsAppSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <TextBlock Text="Branding" Style="{StaticResource SettingsHeading}" Margin="4,0,4,12"/>
+                                    <UniformGrid x:Name="SettingsBrandingGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Product name"/>
+                                            <TextBox x:Name="SettingsProductNameText" ToolTip="Product name shown in CallBridge" AutomationProperties.Name="Product name"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Company name"/>
+                                            <TextBox x:Name="SettingsCompanyNameText" ToolTip="Company name shown in CallBridge" AutomationProperties.Name="Company name"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Accent color" Margin="4,8,4,5"/>
+                                    <WrapPanel Margin="4,0,4,0">
+                                        <Border x:Name="AccentPreview" Width="36" Height="36" CornerRadius="6" Background="{DynamicResource Accent}" BorderBrush="{DynamicResource Line}" BorderThickness="1" Margin="0,0,8,6"/>
+                                        <TextBox x:Name="SettingsAccentText" Width="110" Margin="0,0,8,6" FontFamily="{StaticResource MonoFont}" ToolTip="Accent color as #RRGGBB" AutomationProperties.Name="Accent color"/>
+                                        <StackPanel x:Name="AccentPresetsPanel" Orientation="Horizontal" Margin="0,0,8,6"/>
+                                        <Button x:Name="ResetAccentButton" Content="Default" Style="{StaticResource ToolbarButton}" Margin="0,0,0,6" ToolTip="Use the default CallBridge blue" AutomationProperties.Name="Use default accent color"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="AccentMessageText" Text="Buttons, tabs, highlights, and the logo tile use this color." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,8"/>
+
+                                    <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Logo" Margin="4,4,4,5"/>
+                                    <WrapPanel Margin="4,0,4,0">
+                                        <Border x:Name="LogoPreviewTile" Width="48" Height="48" CornerRadius="8" Background="{DynamicResource Accent}" Margin="0,0,10,6">
+                                            <Grid>
+                                                <TextBlock x:Name="LogoPreviewText" Text="CB" Foreground="White" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <Image x:Name="LogoPreviewImage" Visibility="Collapsed" Stretch="Uniform" Margin="4" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                            </Grid>
+                                        </Border>
+                                        <Button x:Name="ChooseLogoButton" Content="Choose logo…" Style="{StaticResource ToolbarButton}" Margin="0,6,6,6" ToolTip="Choose a PNG or JPEG logo, up to 1 MB" AutomationProperties.Name="Choose logo"/>
+                                        <Button x:Name="RemoveLogoButton" Content="Remove logo" Style="{StaticResource ToolbarButton}" Margin="0,6,6,6" ToolTip="Show the product initials instead of a logo" AutomationProperties.Name="Remove logo"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="LogoMessageText" Text="PNG or JPEG, up to 1 MB. A square image works best." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}">
+                                <StackPanel>
+                                    <TextBlock Text="Admin PIN" Style="{StaticResource SettingsHeading}" Margin="4,0,4,2"/>
+                                    <TextBlock x:Name="AdminPinStatusText" Text="No admin PIN is set. Anyone using this computer can change admin settings." Style="{StaticResource SettingsFieldLabel}" Margin="4,0,4,12"/>
+                                    <UniformGrid x:Name="AdminPinGrid" Columns="2">
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="New PIN (4 to 12 digits)"/>
+                                            <PasswordBox x:Name="AdminPinNewBox" ToolTip="New admin PIN" AutomationProperties.Name="New admin PIN"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Confirm PIN"/>
+                                            <PasswordBox x:Name="AdminPinConfirmBox" ToolTip="Confirm the new admin PIN" AutomationProperties.Name="Confirm admin PIN"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+                                    <WrapPanel Margin="4,2,4,0">
+                                        <Button x:Name="SetAdminPinButton" Content="Set PIN" Style="{StaticResource PrimaryButton}" Margin="0,0,6,6" ToolTip="Save the admin PIN" AutomationProperties.Name="Set admin PIN"/>
+                                        <Button x:Name="RemoveAdminPinButton" Content="Remove PIN" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Remove the admin PIN so admin settings are unlocked" AutomationProperties.Name="Remove admin PIN"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="AdminPinSetMessageText" Text="" Style="{StaticResource SettingsFieldLabel}" Margin="4,2,4,0" AutomationProperties.LiveSetting="Polite"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+
+
+                <Border x:Name="SettingsActionBar" Grid.Row="4" Style="{StaticResource Card}" Padding="10">
+                    <DockPanel LastChildFill="True">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="SettingsDiscardButton" Content="Discard changes" Margin="8,0,8,0" ToolTip="Reload the last saved settings" AutomationProperties.Name="Discard settings changes"/>
+                            <Button x:Name="SettingsSaveButton" Content="Save settings" Style="{StaticResource PrimaryButton}" ToolTip="Validate and save settings" AutomationProperties.Name="Save settings"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="SettingsStatusDot" Width="8" Height="8" Fill="{DynamicResource Muted}" Margin="4,0,8,0"/>
+                            <TextBlock x:Name="SettingsStatusText" Text="No unsaved changes" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </DockPanel>
-                    <Border Grid.Row="2" Style="{StaticResource PanelBorder}" Padding="18">
-                        <ListBox x:Name="RowsList" BorderThickness="0" Background="Transparent" ItemTemplate="{StaticResource RowItemTemplate}" ItemContainerStyle="{StaticResource SoftListItem}"/>
-                    </Border>
-                </Grid>
+                </Border>
             </Grid>
         </Grid>
     </Grid>

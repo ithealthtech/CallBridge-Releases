@@ -91,7 +91,7 @@ app.Use(async (context, next) =>
 
 app.UseRateLimiter();
 
-app.MapGet("/health", () => Results.Ok(new { ok = true, service = "callbridge-service", version = "0.13.0", telephony = "desktop-managed" }));
+app.MapGet("/health", () => Results.Ok(new { ok = true, service = "callbridge-service", version = "0.14.0", telephony = "desktop-managed" }));
 app.MapGet("/capabilities", () => Results.Ok(new
 {
     ok = true,
@@ -99,8 +99,8 @@ app.MapGet("/capabilities", () => Results.Ok(new
     directory = new { read = true, import = true, manage = true },
     callHistory = true,
     messages = false,
-    voicemail = false,
-    parking = false,
+    voicemail = true,
+    parking = true,
     recordings = false
 }));
 app.MapGet("/providers", () => Results.Ok(new { providers = new[] { "standard-sip" }, planned = Array.Empty<string>() }));

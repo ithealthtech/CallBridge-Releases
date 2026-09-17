@@ -26,6 +26,8 @@ $ServiceProject = Join-Path $ServiceDir 'CallBridge.Service.csproj'
 $RuntimeRoot = Join-Path $env:LOCALAPPDATA 'IT Health Technologies\CallBridge'
 $DataDir = Join-Path $RuntimeRoot 'data'
 $LogDir = Join-Path $RuntimeRoot 'logs'
+$DesktopLog = Join-Path $LogDir 'callbridge-desktop.log'
+$DesktopErrorLog = Join-Path $LogDir 'callbridge-desktop.err.log'
 $HealthUrl = "http://127.0.0.1:$Port/health"
 
 function New-SessionToken {
@@ -70,6 +72,13 @@ function Test-Health {
     } catch { return $false }
 }
 
+function Get-StartupFailure {
+    if (-not (Test-Path -LiteralPath $DesktopErrorLog)) { return 'No additional startup details were recorded.' }
+    $details = @(Get-Content -LiteralPath $DesktopErrorLog -Tail 12 -ErrorAction SilentlyContinue)
+    if ($details.Count -eq 0) { return 'No additional startup details were recorded.' }
+    return ($details -join [Environment]::NewLine)
+}
+
 if (-not (Test-Path -LiteralPath $ServiceProject)) { throw "CallBridge Service was not found at $ServiceProject" }
 if (-not (Test-Path -LiteralPath $DesktopProject)) { throw "CallBridge Desktop was not found at $DesktopProject" }
 
@@ -79,9 +88,9 @@ if (@(Get-PortOwners).Count -gt 0) {
     throw "Port $Port is being used by another application. CallBridge will not terminate an unrelated process."
 }
 
-$dotnet = Get-Command dotnet.exe -ErrorAction SilentlyContinue
-if ((-not (Test-Path -LiteralPath $ServiceExe) -or -not (Test-Path -LiteralPath $DesktopExe)) -and -not $dotnet) {
-    throw '.NET 8 is required when published CallBridge executables are not present.'
+$dotnetPath = $null
+if (-not (Test-Path -LiteralPath $ServiceExe) -or -not (Test-Path -LiteralPath $DesktopExe)) {
+    $dotnetPath = & (Join-Path $Root 'scripts\Get-DotNetPath.ps1') -RequiredMajor 10
 }
 
 $env:CALLBRIDGE_LOCAL_TOKEN = New-SessionToken
@@ -99,7 +108,7 @@ try {
             -RedirectStandardError (Join-Path $LogDir 'callbridge-service.err.log') `
             -PassThru
     } else {
-        $serviceProcess = Start-Process -FilePath $dotnet.Source `
+        $serviceProcess = Start-Process -FilePath $dotnetPath `
             -ArgumentList @('run', '--project', ('"{0}"' -f $ServiceProject), '--configuration', 'Release', '--no-launch-profile') `
             -WorkingDirectory $ServiceDir `
             -WindowStyle Hidden `
@@ -115,13 +124,28 @@ try {
     }
     if (-not (Test-Health)) { throw "CallBridge Service did not start. Review $LogDir" }
 
+    Remove-Item -LiteralPath $DesktopLog, $DesktopErrorLog -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $DesktopExe) {
-        Start-Process -FilePath $DesktopExe -WorkingDirectory (Split-Path -Parent $DesktopExe) -Wait
+        $desktopProcess = Start-Process -FilePath $DesktopExe `
+            -WorkingDirectory (Split-Path -Parent $DesktopExe) `
+            -RedirectStandardOutput $DesktopLog `
+            -RedirectStandardError $DesktopErrorLog `
+            -PassThru
     } else {
-        Start-Process -FilePath $dotnet.Source `
+        $desktopProcess = Start-Process -FilePath $dotnetPath `
             -ArgumentList @('run', '--project', ('"{0}"' -f $DesktopProject), '--configuration', 'Release', '--no-launch-profile') `
             -WorkingDirectory $DesktopDir `
-            -Wait
+            -RedirectStandardOutput $DesktopLog `
+            -RedirectStandardError $DesktopErrorLog `
+            -PassThru
+    }
+
+    $desktopProcess.WaitForExit()
+    $desktopProcess.Refresh()
+    $desktopExitCode = $desktopProcess.ExitCode
+    if ($null -ne $desktopExitCode -and $desktopExitCode -ne 0) {
+        $details = Get-StartupFailure
+        throw "CallBridge Desktop exited with code $desktopExitCode.`n$details`nLogs: $LogDir"
     }
 } finally {
     if ($serviceProcess -and -not $serviceProcess.HasExited) {

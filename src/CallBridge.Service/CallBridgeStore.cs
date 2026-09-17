@@ -163,16 +163,23 @@ public sealed class CallBridgeStore
         var match = FindByPhone(lookup).FirstOrDefault();
         var occurredAt = input.OccurredAt ?? DateTimeOffset.UtcNow;
         var receivedAt = DateTimeOffset.UtcNow;
-        var stored = new StoredCallEvent(Guid.NewGuid().ToString("D"), "standard-sip", input.CallId!, input.Direction!, input.State!, input.CallerNumber ?? "", input.CalledNumber ?? "", input.Extension ?? "", match?.CompanyId, match?.ContactId, occurredAt, receivedAt);
+        var stored = new StoredCallEvent(input.EventId!, "standard-sip", input.CallId!, input.Direction!, input.State!, input.CallerNumber ?? "", input.CalledNumber ?? "", input.Extension ?? "", match?.CompanyId, match?.ContactId, occurredAt, receivedAt);
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
-        Execute(connection, transaction, """
-            INSERT INTO call_events(event_id,provider,provider_call_id,direction,state,caller_number,called_number,extension,company_id,contact_id,occurred_at,received_at)
+        var inserted = Execute(connection, transaction, """
+            INSERT OR IGNORE INTO call_events(event_id,provider,provider_call_id,direction,state,caller_number,called_number,extension,company_id,contact_id,occurred_at,received_at)
             VALUES($event,$provider,$call,$direction,$state,$caller,$called,$extension,$company,$contact,$occurred,$received)
             """,
             ("$event", stored.EventId), ("$provider", stored.Provider), ("$call", stored.ProviderCallId), ("$direction", stored.Direction),
             ("$state", stored.State), ("$caller", stored.CallerNumber), ("$called", stored.CalledNumber), ("$extension", stored.Extension),
             ("$company", stored.CompanyId), ("$contact", stored.ContactId), ("$occurred", occurredAt.ToString("O")), ("$received", receivedAt.ToString("O")));
+        if (inserted == 0)
+        {
+            var existing = ReadEventById(connection, transaction, stored.EventId);
+            if (!IsSameClientEvent(existing, stored)) throw new ApiValidationException("event_id_conflict");
+            transaction.Commit();
+            return existing;
+        }
         transaction.Commit();
         return stored;
     }
@@ -221,7 +228,7 @@ public sealed class CallBridgeStore
                 calls.Add(callId, call);
             }
             if (occurredAt < call.StartedAt) call.StartedAt = occurredAt;
-            if (call.EndedAt is null && reader.GetString(3).ToLowerInvariant() is "hangup" or "ended" or "transfer") call.EndedAt = occurredAt;
+            if (call.EndedAt is null && reader.GetString(3).ToLowerInvariant() is "hangup" or "ended" or "transfer" or "missed" or "failed" or "declined") call.EndedAt = occurredAt;
             if (call.CompanyId.Length == 0 && !reader.IsDBNull(7)) { call.CompanyId = reader.GetString(7); call.CompanyName = reader.GetString(8); }
             if (call.ContactId.Length == 0 && !reader.IsDBNull(9)) { call.ContactId = reader.GetString(9); call.ContactName = reader.GetString(10); }
         }
@@ -297,6 +304,29 @@ public sealed class CallBridgeStore
     private static StoredCallEvent ReadEvent(SqliteDataReader reader) => new(
         reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
         reader.IsDBNull(8) ? null : reader.GetString(8), reader.IsDBNull(9) ? null : reader.GetString(9), DateTimeOffset.Parse(reader.GetString(10)), DateTimeOffset.Parse(reader.GetString(11)));
+
+    private static StoredCallEvent ReadEventById(SqliteConnection connection, SqliteTransaction transaction, string eventId)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT event_id,provider,COALESCE(provider_call_id,''),COALESCE(direction,''),COALESCE(state,''),COALESCE(caller_number,''),COALESCE(called_number,''),COALESCE(extension,''),company_id,contact_id,occurred_at,received_at
+            FROM call_events WHERE event_id=$event LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$event", eventId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) throw new InvalidOperationException("The stored call event could not be read after an idempotent insert.");
+        return ReadEvent(reader);
+    }
+
+    private static bool IsSameClientEvent(StoredCallEvent left, StoredCallEvent right) =>
+        left.ProviderCallId == right.ProviderCallId
+        && left.Direction == right.Direction
+        && left.State == right.State
+        && left.CallerNumber == right.CallerNumber
+        && left.CalledNumber == right.CalledNumber
+        && left.Extension == right.Extension
+        && left.OccurredAt.ToUniversalTime() == right.OccurredAt.ToUniversalTime();
 
     private static void InsertPhone(SqliteConnection connection, SqliteTransaction transaction, string phone, string companyId, string? contactId, string source)
     {

@@ -31,9 +31,11 @@ public static partial class InputValidation
     {
         if (input is null) throw new ApiValidationException("call_event_required");
         var callId = Clean(input.CallId, 200);
+        var eventId = Clean(input.EventId, 200);
+        if (eventId.Length == 0) eventId = Guid.NewGuid().ToString("N");
         var state = Clean(input.State, 50).ToLowerInvariant();
         if (callId.Length == 0 || state.Length == 0) throw new ApiValidationException("call_id_and_state_required");
-        var allowedStates = new HashSet<string>(StringComparer.Ordinal) { "ringing", "started", "answered", "hold", "resume", "transfer", "hangup", "ended", "missed", "failed" };
+        var allowedStates = new HashSet<string>(StringComparer.Ordinal) { "ringing", "started", "answered", "hold", "resume", "transfer", "hangup", "ended", "missed", "failed", "declined" };
         if (!allowedStates.Contains(state)) throw new ApiValidationException("invalid_call_state");
         var direction = Clean(input.Direction, 20).ToLowerInvariant();
         if (direction.Length == 0) direction = "outbound";
@@ -41,6 +43,7 @@ public static partial class InputValidation
         return input with
         {
             CallId = callId,
+            EventId = eventId,
             State = state,
             Direction = direction,
             CallerNumber = Clean(input.CallerNumber, 64),

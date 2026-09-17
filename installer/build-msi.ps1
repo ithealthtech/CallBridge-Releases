@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.13.0",
+    [string]$Version = "0.14.0",
     [switch]$SkipPublish
 )
 
@@ -9,9 +9,9 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $InstallerDirectory = $PSScriptRoot
-$ProjectRoot = Split-Path -Parent $InstallerDirectory
-$PayloadRoot = Join-Path $ProjectRoot "artifacts\msi-payload"
-$OutputRoot = Join-Path $ProjectRoot "artifacts\installer"
+$ProjectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $InstallerDirectory))
+$PayloadRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot "artifacts\msi-payload"))
+$OutputRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot "artifacts\installer"))
 $WixSource = Join-Path $OutputRoot "CallBridge.Generated.wxs"
 $MsiPath = Join-Path $OutputRoot "CallBridge-v$Version.msi"
 
@@ -19,10 +19,9 @@ $DesktopProject = Join-Path $ProjectRoot "src\CallBridge.Desktop\CallBridge.Desk
 $ServiceProject = Join-Path $ProjectRoot "src\CallBridge.Service\CallBridge.Service.csproj"
 $NuGetConfig = Join-Path $ProjectRoot "NuGet.Config"
 
-function Assert-CommandExists {
-    param([Parameter(Mandatory)][string]$CommandName)
-    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
-        throw "Required command '$CommandName' was not found in PATH."
+foreach ($path in @($PayloadRoot, $OutputRoot)) {
+    if (-not $path.StartsWith($ProjectRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Installer output must remain inside the CallBridge project."
     }
 }
 
@@ -85,9 +84,18 @@ function Add-FileComponentXml {
         $fileId = ConvertTo-WixId ("fil_" + ($relative -replace "\\", "_") + "_$index")
         $source = ConvertTo-XmlText $file.FullName
         $name = ConvertTo-XmlText $file.Name
+        $defaultLanguage = if ($file.Name -ieq "e_sqlite3.dll") { " DefaultLanguage=""1033""" } else { "" }
 
         $DirectoryXml.Add("        <Component Id=""$componentId"" Guid=""*"">")
-        $DirectoryXml.Add("          <File Id=""$fileId"" Source=""$source"" Name=""$name"" KeyPath=""yes"" />")
+        if ($relative -ieq "publish\desktop\CallBridge.Desktop.exe") {
+            $DirectoryXml.Add("          <File Id=""$fileId"" Source=""$source"" Name=""$name"" KeyPath=""yes"">")
+            $DirectoryXml.Add("            <Shortcut Id=""StartMenuShortcut"" Directory=""ProgramMenuFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("            <Shortcut Id=""DesktopShortcut"" Directory=""DesktopFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("          </File>")
+        }
+        else {
+            $DirectoryXml.Add("          <File Id=""$fileId"" Source=""$source"" Name=""$name""$defaultLanguage KeyPath=""yes"" />")
+        }
         $DirectoryXml.Add("        </Component>")
         $ComponentRefs.Add("      <ComponentRef Id=""$componentId"" />")
         $index++
@@ -116,17 +124,22 @@ function Add-DirectoryXml {
     }
 }
 
-Assert-CommandExists "dotnet"
+$DotNet = & (Join-Path $ProjectRoot "scripts\Get-DotNetPath.ps1") -RequiredMajor 10
 $Wix = Get-WixCommand
 
 if (-not $SkipPublish) {
     if (Test-Path -LiteralPath $PayloadRoot) { Remove-Item -LiteralPath $PayloadRoot -Recurse -Force }
     New-Item -ItemType Directory -Force -Path (Join-Path $PayloadRoot "publish\desktop"), (Join-Path $PayloadRoot "publish\service") | Out-Null
 
-    dotnet publish $ServiceProject -c $Configuration -o (Join-Path $PayloadRoot "publish\service") --self-contained false --no-restore -p:Version=$Version
+    foreach ($project in @($ServiceProject, $DesktopProject)) {
+        & $DotNet restore $project -r win-x64 --locked-mode
+        if ($LASTEXITCODE -ne 0) { throw "Runtime restore failed for $project." }
+    }
+
+    & $DotNet publish $ServiceProject -c $Configuration -r win-x64 -o (Join-Path $PayloadRoot "publish\service") --self-contained true --no-restore -p:Version=$Version
     if ($LASTEXITCODE -ne 0) { throw "Service publish failed." }
 
-    dotnet publish $DesktopProject -c $Configuration -o (Join-Path $PayloadRoot "publish\desktop") --self-contained false --no-restore -p:Version=$Version
+    & $DotNet publish $DesktopProject -c $Configuration -r win-x64 -o (Join-Path $PayloadRoot "publish\desktop") --self-contained true --no-restore -p:Version=$Version
     if ($LASTEXITCODE -ne 0) { throw "Desktop publish failed." }
 
     Copy-Item -LiteralPath (Join-Path $ProjectRoot "README.md") -Destination $PayloadRoot -Force
@@ -161,31 +174,11 @@ $($directoryXml -join [Environment]::NewLine)
       </Directory>
     </StandardDirectory>
 
-    <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ApplicationProgramsFolder" Name="CallBridge" />
-    </StandardDirectory>
-
+    <StandardDirectory Id="ProgramMenuFolder" />
     <StandardDirectory Id="DesktopFolder" />
-
-    <DirectoryRef Id="ApplicationProgramsFolder">
-      <Component Id="StartMenuShortcutComponent" Guid="*">
-        <Shortcut Id="StartMenuShortcut" Name="CallBridge" Target="[INSTALLFOLDER]publish\desktop\CallBridge.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
-        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
-        <RegistryValue Root="HKLM" Key="Software\IT Health Technologies\CallBridge" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
-      </Component>
-    </DirectoryRef>
-
-    <DirectoryRef Id="DesktopFolder">
-      <Component Id="DesktopShortcutComponent" Guid="*">
-        <Shortcut Id="DesktopShortcut" Name="CallBridge" Target="[INSTALLFOLDER]publish\desktop\CallBridge.Desktop.exe" WorkingDirectory="INSTALLFOLDER" />
-        <RegistryValue Root="HKLM" Key="Software\IT Health Technologies\CallBridge" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
-      </Component>
-    </DirectoryRef>
 
     <Feature Id="MainFeature" Title="CallBridge" Level="1">
 $($componentRefs -join [Environment]::NewLine)
-      <ComponentRef Id="StartMenuShortcutComponent" />
-      <ComponentRef Id="DesktopShortcutComponent" />
     </Feature>
   </Package>
 </Wix>
@@ -193,7 +186,9 @@ $($componentRefs -join [Environment]::NewLine)
 
 Set-Content -LiteralPath $WixSource -Value $wxs -Encoding UTF8
 
-& $Wix build $WixSource -arch x64 -out $MsiPath
+# e_sqlite3.dll is an unversioned vendor binary; DefaultLanguage makes MSI repair
+# deterministic and WIX1101 is suppressed only for that known metadata limitation.
+& $Wix --acceptEula wix7 build $WixSource -arch x64 -sw1101 -out $MsiPath
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed." }
 
 $hash = Get-FileHash -LiteralPath $MsiPath -Algorithm SHA256

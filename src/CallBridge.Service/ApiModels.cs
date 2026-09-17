@@ -25,7 +25,8 @@ public sealed record CallEventInput(
     string? CallerNumber,
     string? CalledNumber,
     string? Extension,
-    DateTimeOffset? OccurredAt);
+    DateTimeOffset? OccurredAt,
+    string? EventId = null);
 
 public sealed record CallNoteInput(string? Notes, string? Outcome);
 

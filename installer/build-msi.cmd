@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set VERSION=0.13.0
+set VERSION=0.14.0
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass ^
   -File "%~dp0build-msi.ps1" ^

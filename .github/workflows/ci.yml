@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
       - name: Restore locked dependencies
         run: dotnet restore .\CallBridge.sln --locked-mode
       - name: Build
@@ -30,3 +30,8 @@ jobs:
         run: dotnet run --project .\src\CallBridge.Desktop\tests\SipMediaSmoke\SipMediaSmoke.csproj -c Release
       - name: SIP transport and TLS smoke test
         run: dotnet run --project .\src\CallBridge.Desktop\tests\SipTransportSmoke\SipTransportSmoke.csproj -c Release
+      - name: Responsive and accessibility smoke test
+        run: dotnet run --project .\src\CallBridge.Desktop\tests\ResponsiveLayoutSmoke\ResponsiveLayoutSmoke.csproj -c Release
+      - name: Packaged startup and shutdown smoke test
+        shell: powershell
+        run: .\tests\Invoke-PackagedStartupSmoke.ps1 -Configuration Release

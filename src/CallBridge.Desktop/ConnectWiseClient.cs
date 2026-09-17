@@ -8,6 +8,11 @@ namespace CallBridge.Desktop;
 
 public sealed record ConnectWiseResult(bool Success, string Message);
 public sealed record ConnectWiseContactRecord(string CompanyId, string CompanyName, string ContactId, string ContactName, string[] Phones);
+public sealed record ConnectWiseTicketSummary(string Id, string Summary, string Priority, string Status);
+public sealed record ConnectWiseCompanySummary(string Id, string Name)
+{
+    public override string ToString() => Name;
+}
 
 public sealed class ConnectWiseClient : IDisposable
 {
@@ -80,11 +85,89 @@ public sealed class ConnectWiseClient : IDisposable
 
     public async Task<JsonElement> CreateTicketAsync(string companyId, int boardId, string summary, string description)
     {
-        var payload = new { summary, company = new { id = int.Parse(companyId) }, board = new { id = boardId }, initialDescription = description };
+        if (!long.TryParse(companyId, out var numericCompanyId) || numericCompanyId <= 0)
+            throw new ArgumentException("Choose a ConnectWise company for the ticket.", nameof(companyId));
+        if (boardId <= 0) throw new ArgumentException("A default service board ID is required.", nameof(boardId));
+        var payload = new { summary, company = new { id = numericCompanyId }, board = new { id = boardId }, initialDescription = description };
         using var response = await _http.PostAsync($"{_apiBase}/service/tickets", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.Clone();
+    }
+
+    public async Task<List<ConnectWiseTicketSummary>> GetOpenTicketsAsync(string companyId, int maximum = 5, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(companyId, out var numericCompanyId) || numericCompanyId <= 0)
+            throw new ArgumentException("ConnectWise company ID must be numeric.", nameof(companyId));
+        var pageSize = Math.Clamp(maximum, 1, 25);
+        var conditions = Uri.EscapeDataString($"company/id={numericCompanyId} and closedFlag=false");
+        var url = $"{_apiBase}/service/tickets?conditions={conditions}&orderBy=id%20desc&pageSize={pageSize}&fields=id,summary,priority/name,status/name";
+        using var response = await _http.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected tickets response.");
+        var tickets = new List<ConnectWiseTicketSummary>();
+        foreach (var ticket in document.RootElement.EnumerateArray())
+        {
+            var id = Property(ticket, "id");
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            var priority = ticket.TryGetProperty("priority", out var priorityNode) ? Property(priorityNode, "name") : "";
+            var status = ticket.TryGetProperty("status", out var statusNode) ? Property(statusNode, "name") : "";
+            tickets.Add(new(id, Property(ticket, "summary"), priority, status));
+        }
+        return tickets;
+    }
+
+    /// <summary>Finds active companies whose name starts with the query, for choosing a ticket's company.</summary>
+    public async Task<List<ConnectWiseCompanySummary>> SearchCompaniesAsync(string query, int maximum = 10, CancellationToken cancellationToken = default)
+    {
+        var text = new string((query ?? "").Trim().Where(ch => ch is not ('"' or '\\' or '*' or '%')).ToArray());
+        if (text.Length is 0 or > 100) throw new ArgumentException("Enter 1 to 100 characters to search companies.", nameof(query));
+        var conditions = Uri.EscapeDataString($"name like \"{text}*\" and deletedFlag=false");
+        var url = $"{_apiBase}/company/companies?conditions={conditions}&orderBy=name%20asc&pageSize={Math.Clamp(maximum, 1, 25)}&fields=id,name";
+        using var response = await _http.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected companies response.");
+        return document.RootElement.EnumerateArray()
+            .Select(company => new ConnectWiseCompanySummary(Property(company, "id"), Property(company, "name")))
+            .Where(company => long.TryParse(company.Id, out _) && !string.IsNullOrWhiteSpace(company.Name))
+            .ToList();
+    }
+
+    public static bool IsCompanyId(string? companyId) => long.TryParse(companyId, out var id) && id > 0;
+
+    /// <summary>Adds an internal-analysis note to a service ticket.</summary>
+    public async Task AddTicketNoteAsync(string ticketId, string text, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(ticketId, out var numericTicketId) || numericTicketId <= 0)
+            throw new ArgumentException("ConnectWise ticket ID must be numeric.", nameof(ticketId));
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Note text is required.", nameof(text));
+        var payload = new { text = text.Trim(), detailDescriptionFlag = false, internalAnalysisFlag = true, resolutionFlag = false };
+        using var response = await _http.PostAsync($"{_apiBase}/service/tickets/{numericTicketId}/notes", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+    }
+
+    /// <summary>Logs time against a service ticket for the given member.</summary>
+    public async Task CreateTimeEntryAsync(string ticketId, string memberIdentifier, DateTimeOffset start, DateTimeOffset end, string notes, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(ticketId, out var numericTicketId) || numericTicketId <= 0)
+            throw new ArgumentException("ConnectWise ticket ID must be numeric.", nameof(ticketId));
+        var member = (memberIdentifier ?? "").Trim();
+        if (member.Length is 0 or > 50 || member.Any(ch => !char.IsLetterOrDigit(ch) && ch is not '.' and not '_' and not '-'))
+            throw new ArgumentException("ConnectWise member ID must be letters, numbers, dots, dashes, or underscores.", nameof(memberIdentifier));
+        if (end <= start) throw new ArgumentException("Time entry end must be after its start.", nameof(end));
+        var payload = new
+        {
+            chargeToId = numericTicketId,
+            chargeToType = "ServiceTicket",
+            member = new { identifier = member },
+            timeStart = start.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            timeEnd = end.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            notes = string.IsNullOrWhiteSpace(notes) ? "Phone call" : notes.Trim()
+        };
+        using var response = await _http.PostAsync($"{_apiBase}/time/entries", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
     }
 
     public string CompanyUrl(string companyId) => $"{_siteBase}/v4_6_release/ConnectWise.aspx?locale=en_US&routeTo=Company.fv&recid={Uri.EscapeDataString(companyId)}";

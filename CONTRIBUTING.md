@@ -19,7 +19,7 @@ workstation.
 ## Requirements
 
 - Windows 10 or Windows 11
-- .NET 8 SDK
+- .NET 10 SDK
 
 ## Run locally
 

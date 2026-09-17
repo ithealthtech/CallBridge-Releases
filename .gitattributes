@@ -1,0 +1,10 @@
+# Store text with LF in the repository; Windows scripts check out with CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.sln text eol=crlf
+*.png binary
+*.jpg binary
+*.ico binary
+*.ttf binary
+*.zip binary

@@ -4,12 +4,13 @@ using System.Text;
 using System.Text.Json;
 using CallBridge.Desktop;
 
+var testOnlyCredential = $"test-only-{Guid.Empty:N}";
 var settings = new AppSettings
 {
     ConnectWiseSite = "https://na.example.connectwise.net",
     ConnectWiseCompanyId = "acme",
     ConnectWisePublicKey = "public-key",
-    ConnectWisePrivateKey = "private-key",
+    ConnectWisePrivateKey = testOnlyCredential,
     ConnectWiseClientId = "client-id"
 };
 
@@ -30,16 +31,59 @@ var ticket = await client.CreateTicketAsync("101", 7, "Phone support", "Caller n
 Assert(ticket.GetProperty("id").GetInt32() == 9001, "Ticket response parsing failed.");
 Assert(handler.SawValidAuthentication, "ConnectWise authentication headers were not sent.");
 Assert(handler.SawExpectedTicket, "ConnectWise ticket request body was incorrect.");
+var openTickets = await client.GetOpenTicketsAsync("101", 5);
+Assert(handler.SawExpectedTicketQuery, "Open-ticket query conditions were incorrect.");
+Assert(openTickets.Count == 1 && openTickets[0].Id == "48213" && openTickets[0].Priority == "Priority 2 - High" && openTickets[0].Status == "New", "Open-ticket mapping failed.");
+try
+{
+    await client.GetOpenTicketsAsync("101 or 1=1");
+    throw new InvalidOperationException("Non-numeric company IDs must be rejected before querying tickets.");
+}
+catch (ArgumentException)
+{
+}
+await client.AddTicketNoteAsync("48213", "Printer back online after driver rollback.");
+Assert(handler.SawExpectedTicketNote, "Ticket note request was incorrect.");
+try
+{
+    await client.AddTicketNoteAsync("48213/../1", "x");
+    throw new InvalidOperationException("Non-numeric ticket IDs must be rejected before adding notes.");
+}
+catch (ArgumentException)
+{
+}
+var companies = await client.SearchCompaniesAsync("Blue \"Ridge");
+Assert(handler.SawExpectedCompanySearch, "Company search conditions were incorrect or unescaped.");
+Assert(companies.Count == 1 && companies[0].Id == "101" && companies[0].Name == "Blue Ridge Dental", "Company search mapping failed.");
+try
+{
+    await client.CreateTicketAsync("import:blue-ridge", 7, "Phone support", "x");
+    throw new InvalidOperationException("Tickets must require a numeric ConnectWise company ID.");
+}
+catch (ArgumentException)
+{
+}
+var callStart = new DateTimeOffset(2026, 9, 15, 14, 0, 0, TimeSpan.Zero);
+await client.CreateTimeEntryAsync("48213", "tgifol", callStart, callStart.AddMinutes(12), "Printer call");
+Assert(handler.SawExpectedTimeEntry, "Time entry request was incorrect.");
+try
+{
+    await client.CreateTimeEntryAsync("48213", "bad member\"", callStart, callStart.AddMinutes(1), "x");
+    throw new InvalidOperationException("Unsafe member IDs must be rejected.");
+}
+catch (ArgumentException)
+{
+}
 Assert(client.CompanyUrl("101").StartsWith("https://na.example.connectwise.net/", StringComparison.Ordinal), "Company deep link was incorrect.");
 
 var platformSettings = new AppSettings
 {
     ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
     ConnectWisePlatformClientId = "platform-client-smoke",
-    ConnectWisePlatformClientSecret = "platform-secret",
+    ConnectWisePlatformClientSecret = testOnlyCredential,
     ConnectWisePlatformScopes = "platform.companies.read, platform.tickets.create"
 };
-var platformHandler = new FakePlatformHandler(exhaustAfterRequest: true);
+var platformHandler = new FakePlatformHandler(testOnlyCredential, exhaustAfterRequest: true);
 using var platform = new ConnectWisePlatformClient(platformSettings, platformHandler);
 Assert((await platform.TestAsync()).Success, "Platform OAuth token request failed.");
 Assert((await platform.TestAsync()).Success, "Cached Platform OAuth token failed.");
@@ -73,10 +117,10 @@ var limitedSettings = new AppSettings
 {
     ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
     ConnectWisePlatformClientId = "platform-client-429-smoke",
-    ConnectWisePlatformClientSecret = "platform-secret",
+    ConnectWisePlatformClientSecret = testOnlyCredential,
     ConnectWisePlatformScopes = "platform.companies.read"
 };
-using var limited = new ConnectWisePlatformClient(limitedSettings, new FakePlatformHandler(return429: true));
+using var limited = new ConnectWisePlatformClient(limitedSettings, new FakePlatformHandler(testOnlyCredential, return429: true));
 try
 {
     using var limitedRequest = new HttpRequestMessage(HttpMethod.Get, $"{ConnectWisePlatformClient.NorthAmericaBaseUrl}/v1/companies");
@@ -114,6 +158,10 @@ sealed class FakeConnectWiseHandler : HttpMessageHandler
 {
     public bool SawValidAuthentication { get; private set; }
     public bool SawExpectedTicket { get; private set; }
+    public bool SawExpectedTicketQuery { get; private set; }
+    public bool SawExpectedTicketNote { get; private set; }
+    public bool SawExpectedTimeEntry { get; private set; }
+    public bool SawExpectedCompanySearch { get; private set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -124,7 +172,12 @@ sealed class FakeConnectWiseHandler : HttpMessageHandler
 
         var path = request.RequestUri?.AbsolutePath ?? "";
         if (request.Method == HttpMethod.Get && path.EndsWith("/company/companies", StringComparison.Ordinal))
-            return Json(HttpStatusCode.OK, "[]");
+        {
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            if (!query.Contains("conditions=", StringComparison.Ordinal)) return Json(HttpStatusCode.OK, "[]");
+            SawExpectedCompanySearch = query.Contains("name like \"Blue Ridge*\" and deletedFlag=false", StringComparison.Ordinal);
+            return Json(HttpStatusCode.OK, """[{"id":101,"name":"Blue Ridge Dental"}]""");
+        }
 
         if (request.Method == HttpMethod.Get && path.EndsWith("/company/contacts", StringComparison.Ordinal))
         {
@@ -143,6 +196,34 @@ sealed class FakeConnectWiseHandler : HttpMessageHandler
             }]
             """;
             return Json(HttpStatusCode.OK, body);
+        }
+
+        if (request.Method == HttpMethod.Post && path.EndsWith("/time/entries", StringComparison.Ordinal))
+        {
+            using var entry = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+            var root = entry.RootElement;
+            SawExpectedTimeEntry = root.GetProperty("chargeToId").GetInt64() == 48213
+                && root.GetProperty("chargeToType").GetString() == "ServiceTicket"
+                && root.GetProperty("member").GetProperty("identifier").GetString() == "tgifol"
+                && root.GetProperty("timeStart").GetString() == "2026-09-15T14:00:00Z"
+                && root.GetProperty("timeEnd").GetString() == "2026-09-15T14:12:00Z";
+            return Json(HttpStatusCode.Created, "{\"id\":7}");
+        }
+
+        if (request.Method == HttpMethod.Post && path.EndsWith("/service/tickets/48213/notes", StringComparison.Ordinal))
+        {
+            using var note = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+            SawExpectedTicketNote = note.RootElement.GetProperty("text").GetString() == "Printer back online after driver rollback."
+                && note.RootElement.GetProperty("internalAnalysisFlag").GetBoolean();
+            return Json(HttpStatusCode.Created, "{\"id\":1}");
+        }
+
+        if (request.Method == HttpMethod.Get && path.EndsWith("/service/tickets", StringComparison.Ordinal))
+        {
+            var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+            SawExpectedTicketQuery = query.Contains("conditions=company/id=101 and closedFlag=false", StringComparison.Ordinal)
+                && query.Contains("pageSize=5", StringComparison.Ordinal);
+            return Json(HttpStatusCode.OK, """[{"id":48213,"summary":"Front desk printer offline","priority":{"name":"Priority 2 - High"},"status":{"name":"New"}}]""");
         }
 
         if (request.Method == HttpMethod.Post && path.EndsWith("/service/tickets", StringComparison.Ordinal))
@@ -166,7 +247,7 @@ sealed class FakeConnectWiseHandler : HttpMessageHandler
     };
 }
 
-sealed class FakePlatformHandler(bool exhaustAfterRequest = false, bool return429 = false) : HttpMessageHandler
+sealed class FakePlatformHandler(string expectedClientSecret, bool exhaustAfterRequest = false, bool return429 = false) : HttpMessageHandler
 {
     public int TokenRequests { get; private set; }
     public bool SawBearerToken { get; private set; }
@@ -183,7 +264,7 @@ sealed class FakePlatformHandler(bool exhaustAfterRequest = false, bool return42
             var root = document.RootElement;
             Assert(root.GetProperty("grant_type").GetString() == "client_credentials", "Platform grant type was incorrect.");
             Assert(root.GetProperty("client_id").GetString()!.StartsWith("platform-client-", StringComparison.Ordinal), "Platform Client ID was incorrect.");
-            Assert(root.GetProperty("client_secret").GetString() == "platform-secret", "Platform Client Secret was incorrect.");
+            Assert(root.GetProperty("client_secret").GetString() == expectedClientSecret, "Platform Client Secret was incorrect.");
             Assert(root.GetProperty("scope").GetString()!.Contains("platform.companies.read", StringComparison.Ordinal), "Platform scopes were incorrect.");
             return Json(HttpStatusCode.OK, "{\"access_token\":\"bearer-smoke-token\",\"expires_in\":3600}");
         }

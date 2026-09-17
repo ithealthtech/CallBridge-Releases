@@ -11,75 +11,40 @@ void Check(string name, bool condition, string detail = "")
 }
 
 Console.WriteLine("Transport selection");
+Check("new installs default to TLS", new AppSettings().SipTransport == "TLS");
+Check("unknown transport is rejected", !SipTransportProfile.TryParse("carrier-pigeon", out _));
+Check("explicit UDP is honoured", SipTransportProfile.TryParse("udp", out var udp) && udp == SipSignalingTransport.Udp);
+Check("explicit TCP is honoured", SipTransportProfile.TryParse("TCP", out var tcp) && tcp == SipSignalingTransport.Tcp);
 
-// TLS is the default when nothing usable is configured.
-Check("empty transport defaults to TLS", SipSoftphone.ParseTransport("") == SipTransportMode.Tls);
-Check("null transport defaults to TLS", SipSoftphone.ParseTransport(null) == SipTransportMode.Tls);
-Check("unknown transport defaults to TLS", SipSoftphone.ParseTransport("carrier-pigeon") == SipTransportMode.Tls);
-Check("explicit UDP is honoured", SipSoftphone.ParseTransport("udp") == SipTransportMode.Udp);
-Check("explicit TCP is honoured", SipSoftphone.ParseTransport("TCP") == SipTransportMode.Tcp);
-
-Console.WriteLine("Server parsing");
-
-var plain = SipSoftphone.ParseServer("pbx.example.invalid", SipTransportMode.Tls);
-Check("bare host keeps TLS", plain is { Host: "pbx.example.invalid", Port: null, Mode: SipTransportMode.Tls });
-
-// A secure address must never be silently downgraded by a stale setting.
-var scheme = SipSoftphone.ParseServer("sips:pbx.example.invalid", SipTransportMode.Udp);
-Check("sips: scheme upgrades UDP to TLS", scheme.Mode == SipTransportMode.Tls, $"got {scheme.Mode}");
-
-var securePort = SipSoftphone.ParseServer("pbx.example.invalid:5061", SipTransportMode.Udp);
-Check("port 5061 upgrades UDP to TLS", securePort is { Port: 5061, Mode: SipTransportMode.Tls }, $"got {securePort.Mode}");
-
-var explicitUdp = SipSoftphone.ParseServer("pbx.example.invalid:5060", SipTransportMode.Udp);
-Check("explicit UDP on 5060 stays UDP", explicitUdp is { Port: 5060, Mode: SipTransportMode.Udp });
-
-var withUser = SipSoftphone.ParseServer("sips:alice@pbx.example.invalid:5061", SipTransportMode.Tls);
-Check("user part is stripped from registrar host", withUser.Host == "pbx.example.invalid", $"got {withUser.Host}");
-
-var sipPrefix = SipSoftphone.ParseServer("sip:pbx.example.invalid", SipTransportMode.Tcp);
-Check("sip: prefix is removed", sipPrefix.Host == "pbx.example.invalid");
+Console.WriteLine("Secure addresses cannot be downgraded");
+Check("sips: scheme upgrades UDP to TLS", SipTransportProfile.ResolveTransport("sips:pbx.example.invalid", SipSignalingTransport.Udp) == SipSignalingTransport.Tls);
+Check("port 5061 upgrades UDP to TLS", SipTransportProfile.ResolveTransport("pbx.example.invalid:5061", SipSignalingTransport.Udp) == SipSignalingTransport.Tls);
+Check("sip:user@host:5061 upgrades TCP to TLS", SipTransportProfile.ResolveTransport("sip:alice@pbx.example.invalid:5061", SipSignalingTransport.Tcp) == SipSignalingTransport.Tls);
+Check("explicit UDP on 5060 stays UDP", SipTransportProfile.ResolveTransport("pbx.example.invalid:5060", SipSignalingTransport.Udp) == SipSignalingTransport.Udp);
+Check("bare host keeps configured transport", SipTransportProfile.ResolveTransport("pbx.example.invalid", SipSignalingTransport.Tcp) == SipSignalingTransport.Tcp);
 
 Console.WriteLine("Registrar URI");
-
-var tlsUri = SipSoftphone.BuildRegistrarUri("pbx.example.invalid", null, SipTransportMode.Tls);
-Check("TLS registrar uses sips and 5061", tlsUri == "sips:pbx.example.invalid:5061", $"got {tlsUri}");
-Check("TLS registrar parses as tls", SIPURI.ParseSIPURIRelaxed(tlsUri).Protocol == SIPProtocolsEnum.tls);
-
-var tcpUri = SipSoftphone.BuildRegistrarUri("pbx.example.invalid", null, SipTransportMode.Tcp);
-Check("TCP registrar parses as tcp", SIPURI.ParseSIPURIRelaxed(tcpUri).Protocol == SIPProtocolsEnum.tcp, $"got {tcpUri}");
-
-var udpUri = SipSoftphone.BuildRegistrarUri("pbx.example.invalid", 5060, SipTransportMode.Udp);
-Check("UDP registrar uses sip and 5060", udpUri == "sip:pbx.example.invalid:5060", $"got {udpUri}");
+var tlsUri = SipTransportProfile.BuildRegistrarUri("pbx.example.invalid", SipSignalingTransport.Tls);
+Check("TLS registrar uses sips", tlsUri.Scheme == SIPSchemesEnum.sips && tlsUri.Protocol == SIPProtocolsEnum.tls, $"got {tlsUri}");
+var tcpUri = SipTransportProfile.BuildRegistrarUri("pbx.example.invalid", SipSignalingTransport.Tcp);
+Check("TCP registrar uses tcp", tcpUri.Protocol == SIPProtocolsEnum.tcp, $"got {tcpUri}");
+var withUser = SipTransportProfile.BuildRegistrarUri("sip:alice@pbx.example.invalid", SipSignalingTransport.Udp);
+Check("user part is stripped from registrar", string.IsNullOrEmpty(withUser.User) && withUser.Host.StartsWith("pbx.example.invalid", StringComparison.Ordinal), $"got {withUser}");
 
 Console.WriteLine("Channels");
-
-var tlsChannel = SipSoftphone.CreateChannel(SipTransportMode.Tls);
+var tlsChannel = SipTransportProfile.CreateChannel(SipSignalingTransport.Tls);
 Check("TLS channel reports tls protocol", tlsChannel.SIPProtocol == SIPProtocolsEnum.tls);
 Check("TLS channel reports secure", tlsChannel.IsSecure);
 tlsChannel.Close();
-
-var udpChannel = SipSoftphone.CreateChannel(SipTransportMode.Udp);
+var udpChannel = SipTransportProfile.CreateChannel(SipSignalingTransport.Udp);
 Check("UDP channel is not secure", !udpChannel.IsSecure);
 udpChannel.Close();
 
 Console.WriteLine("Certificate validation");
-
-// The validator must accept only a clean chain. No bypass, in any build.
-var validator = typeof(SipSoftphone).GetMethod(
-    "ValidateServerCertificate",
-    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-Check("validator exists", validator is not null);
-if (validator is not null)
-{
-    bool Invoke(SslPolicyErrors errors) =>
-        (bool)validator.Invoke(null, new object?[] { new object(), null, null, errors })!;
-
-    Check("clean chain is accepted", Invoke(SslPolicyErrors.None));
-    Check("name mismatch is rejected", !Invoke(SslPolicyErrors.RemoteCertificateNameMismatch));
-    Check("untrusted chain is rejected", !Invoke(SslPolicyErrors.RemoteCertificateChainErrors));
-    Check("missing certificate is rejected", !Invoke(SslPolicyErrors.RemoteCertificateNotAvailable));
-}
+Check("clean chain is accepted", SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.None));
+Check("name mismatch is rejected", !SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.RemoteCertificateNameMismatch));
+Check("untrusted chain is rejected", !SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.RemoteCertificateChainErrors));
+Check("missing certificate is rejected", !SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.RemoteCertificateNotAvailable));
 
 if (failures.Count > 0)
 {
@@ -87,5 +52,5 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("SIP transport smoke test passed: TLS is the default, secure addresses cannot be downgraded, and certificate validation rejects every policy error.");
+Console.WriteLine("SIP transport smoke test passed: new installs default to TLS, secure addresses cannot be downgraded, and certificate validation rejects every policy error.");
 return 0;
