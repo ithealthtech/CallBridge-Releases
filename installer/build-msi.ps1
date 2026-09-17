@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.15.0",
+    [string]$Version = "0.15.1",
     [switch]$SkipPublish
 )
 
@@ -16,6 +16,7 @@ $WixSource = Join-Path $OutputRoot "CallBridge.Generated.wxs"
 $MsiPath = Join-Path $OutputRoot "CallBridge-v$Version.msi"
 
 $DesktopProject = Join-Path $ProjectRoot "src\CallBridge.Desktop\CallBridge.Desktop.csproj"
+$AppIcon = Join-Path $ProjectRoot "src\CallBridge.Desktop\Assets\CallBridge.ico"
 $ServiceProject = Join-Path $ProjectRoot "src\CallBridge.Service\CallBridge.Service.csproj"
 $NuGetConfig = Join-Path $ProjectRoot "NuGet.Config"
 
@@ -89,8 +90,8 @@ function Add-FileComponentXml {
         $DirectoryXml.Add("        <Component Id=""$componentId"" Guid=""*"">")
         if ($relative -ieq "publish\desktop\CallBridge.Desktop.exe") {
             $DirectoryXml.Add("          <File Id=""$fileId"" Source=""$source"" Name=""$name"" KeyPath=""yes"">")
-            $DirectoryXml.Add("            <Shortcut Id=""StartMenuShortcut"" Directory=""ProgramMenuFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" WorkingDirectory=""$DirectoryId"" />")
-            $DirectoryXml.Add("            <Shortcut Id=""DesktopShortcut"" Directory=""DesktopFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("            <Shortcut Id=""StartMenuShortcut"" Directory=""ProgramMenuFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon"" WorkingDirectory=""$DirectoryId"" />")
+            $DirectoryXml.Add("            <Shortcut Id=""DesktopShortcut"" Directory=""DesktopFolder"" Name=""CallBridge"" Description=""CallBridge softphone"" Advertise=""yes"" Icon=""CallBridgeIcon"" WorkingDirectory=""$DirectoryId"" />")
             $DirectoryXml.Add("          </File>")
         }
         else {
@@ -153,6 +154,7 @@ New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 
 $directoryXml = New-Object System.Collections.Generic.List[string]
 $componentRefs = New-Object System.Collections.Generic.List[string]
+$AppIconXml = ConvertTo-XmlText $AppIcon
 Add-DirectoryXml -SourceRoot $PayloadRoot -DirectoryPath $PayloadRoot -DirectoryId "INSTALLFOLDER" -DirectoryXml $directoryXml -ComponentRefs $componentRefs
 
 $wxs = @"
@@ -167,6 +169,8 @@ $wxs = @"
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of CallBridge is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="CallBridgeIcon" SourceFile="$AppIconXml" />
+    <Property Id="ARPPRODUCTICON" Value="CallBridgeIcon" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="CallBridge">
