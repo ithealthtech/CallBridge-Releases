@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.18.1",
+    [string]$Version = "0.18.2",
     [switch]$SkipPublish
 )
 
@@ -167,7 +167,11 @@ $wxs = @"
     Scope="perMachine"
     Compressed="yes">
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of CallBridge is already installed." />
+    <!-- Remove the previous version before the new files are laid down, so an upgrade never leaves old binaries
+         behind, and allow reinstalling the same version over itself for repairs. -->
+    <MajorUpgrade Schedule="afterInstallInitialize" AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of CallBridge is already installed." />
+    <!-- Always overwrite existing files, even when the version number is unchanged. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="CallBridgeIcon.ico" SourceFile="$AppIconXml" />
     <Property Id="ARPPRODUCTICON" Value="CallBridgeIcon.ico" />

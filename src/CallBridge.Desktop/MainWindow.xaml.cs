@@ -3896,10 +3896,11 @@ public partial class MainWindow : Window
                 InstallUpdateButton.IsEnabled = true;
                 return;
             }
-            ShowBanner($"Installing CallBridge {update.Version}. CallBridge will close and reopen from the Start menu.", ThemePalette.Hex("Accent"));
+            ShowBanner($"Installing CallBridge {update.Version}. CallBridge closes now and can be reopened from the Start menu.", ThemePalette.Hex("Accent"));
             UpdateChecker.LaunchInstaller(msi);
             App.LogStartup($"Update to {update.Version} started.");
-            await Task.Delay(TimeSpan.FromSeconds(2));
+            // Close before Windows Installer replaces the files; otherwise the old version stays until a reboot.
+            await Task.Delay(TimeSpan.FromSeconds(1));
             _exitRequested = true;
             System.Windows.Application.Current.Shutdown();
         }

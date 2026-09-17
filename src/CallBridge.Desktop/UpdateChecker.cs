@@ -129,17 +129,27 @@ public static partial class UpdateChecker
         return path;
     }
 
-    /// <summary>Starts Windows Installer for the verified MSI (Windows shows the admin prompt).</summary>
+    /// <summary>
+    /// Starts Windows Installer for the verified MSI (Windows shows the admin prompt). The install waits a few
+    /// seconds first so CallBridge has closed: an upgrade that runs while the app is open leaves the old files in
+    /// place until the next reboot, which is how a machine ends up reporting an older version than it installed.
+    /// </summary>
     public static void LaunchInstaller(string msiPath)
     {
-        var msiexec = Path.Combine(Environment.SystemDirectory, "msiexec.exe");
-        Process.Start(new ProcessStartInfo(msiexec)
+        if (msiPath.Contains('"')) throw new ArgumentException("The update path is not valid.", nameof(msiPath));
+        var command = $"/c timeout /t {InstallerStartDelaySeconds} /nobreak > nul & start \"\" /wait msiexec.exe /i \"{msiPath}\" /passive /norestart";
+        Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
         {
-            Arguments = $"/i \"{msiPath}\" /passive /norestart",
+            Arguments = command,
             UseShellExecute = true,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
             Verb = "runas"
         });
     }
+
+    /// <summary>Seconds Windows Installer waits before starting, to let CallBridge shut down first.</summary>
+    public const int InstallerStartDelaySeconds = 6;
 
     private static HttpClient CreateClient()
     {
