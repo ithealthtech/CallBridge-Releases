@@ -53,6 +53,23 @@
                             <TextBlock x:Name="ExtensionText" Text="Ext 201" FontSize="12" Foreground="{DynamicResource Muted}" Margin="8,0,0,0" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="90"/>
                         </StackPanel>
                     </Border>
+                    <Button x:Name="UpdateBadgeButton" Visibility="Collapsed" Cursor="Hand" Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="A new version of CallBridge is ready to install" AutomationProperties.Name="Update available">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="BadgeBorder" CornerRadius="14" BorderBrush="{DynamicResource Accent}" BorderThickness="1" Background="{DynamicResource AccentSoft}" Padding="10,4">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE896;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="11" Foreground="{DynamicResource Accent}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Update available" FontSize="12" Foreground="{DynamicResource Ink}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="BadgeBorder" Property="BorderThickness" Value="2"/><Setter TargetName="BadgeBorder" Property="Padding" Value="9,3"/></Trigger>
+                                    <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="BadgeBorder" Property="BorderThickness" Value="2"/><Setter TargetName="BadgeBorder" Property="Padding" Value="9,3"/></Trigger>
+                                    <Trigger Property="IsEnabled" Value="False"><Setter TargetName="BadgeBorder" Property="Opacity" Value="0.6"/></Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
                     <Button x:Name="RegisterButton" Content="Register" Style="{StaticResource PrimaryButton}" Margin="0,0,4,0"/>
                     <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" Content="&#xE713;"/>
                 </StackPanel>
@@ -352,6 +369,7 @@
                     <WrapPanel x:Name="SettingsTabsPanel">
                         <Button x:Name="SettingsAudioTabButton" Style="{StaticResource SettingsTabButton}" Content="Audio" ToolTip="Choose your microphone, speaker, and ringtone" AutomationProperties.Name="Audio settings"/>
                         <Button x:Name="SettingsSignInTabButton" Style="{StaticResource SettingsTabButton}" Content="Sign-in" ToolTip="Phone status, your ConnectWise member ID, and startup options" AutomationProperties.Name="Sign-in settings"/>
+                        <Button x:Name="SettingsAboutTabButton" Style="{StaticResource SettingsTabButton}" Content="About" ToolTip="Version and updates" AutomationProperties.Name="About and updates"/>
                         <Border Width="1" Margin="8,6" Background="{DynamicResource Line}"/>
                         <Button x:Name="SettingsAdminTabButton" Style="{StaticResource SettingsTabButton}" ToolTip="SIP, ConnectWise, and branding. Requires the admin PIN when one is set." AutomationProperties.Name="Admin settings">
                             <StackPanel Orientation="Horizontal">
@@ -448,6 +466,30 @@
                             </Border>
                         </StackPanel>
 
+                        <StackPanel x:Name="SettingsAboutSection" Visibility="Collapsed">
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="About CallBridge" Style="{StaticResource SettingsHeading}"/>
+                                    <TextBlock x:Name="AboutVersionText" Text="Version" Margin="0,6,0,0"/>
+                                    <TextBlock Text="CallBridge checks for updates when it starts and every 6 hours. Updates never install without a click, and never during a call." Style="{StaticResource SettingsFieldLabel}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="Updates" Style="{StaticResource SettingsHeading}"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                        <Ellipse x:Name="AboutUpdateDot" Width="8" Height="8" Fill="{DynamicResource Muted}" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="AboutUpdateStatusText" Text="Not checked yet" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="AboutLastCheckedText" Text="" Style="{StaticResource SettingsFieldLabel}" Margin="0,6,0,0"/>
+                                    <WrapPanel Margin="0,10,0,0">
+                                        <Button x:Name="CheckForUpdatesButton" Content="Check now" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" AutomationProperties.Name="Check for updates"/>
+                                        <Button x:Name="AboutInstallUpdateButton" Content="Install update" Style="{StaticResource PrimaryButton}" Visibility="Collapsed" Margin="0,0,6,6" AutomationProperties.Name="Install update"/>
+                                        <Button x:Name="ReleaseNotesButton" Content="Release notes" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" AutomationProperties.Name="Open release notes"/>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
                         <StackPanel x:Name="SettingsLockedSection" Visibility="Collapsed">
                             <Border Style="{StaticResource SettingsCard}" Padding="24">
                                 <StackPanel MaxWidth="380" HorizontalAlignment="Left">

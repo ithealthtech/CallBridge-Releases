@@ -96,7 +96,8 @@ internal static class Program
             VerifyDisabledTooltips(window);
             VerifyEmbeddedSettingsPage(window);
             VerifyTimeEntryQueue(window);
-            var brandedPath = VerifyBranding(window);
+            VerifyUpdateIndicators(window);
+        var brandedPath = VerifyBranding(window);
             var settingsPreviewPath = CaptureSettingsPreview(window);
             var homePreviewPath = CaptureHomePreview(window);
             var previewPath = CaptureIncomingCallPreview(window);
@@ -1069,6 +1070,41 @@ internal static class Program
     private const int PreviewWidth = 880;
     private const int PreviewHeight = 680;
 
+    private static void VerifyUpdateIndicators(MainWindow window)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var refresh = typeof(MainWindow).GetMethod("RefreshUpdateIndicators", flags)!;
+        var field = typeof(MainWindow).GetField("_availableUpdate", flags)!;
+        var showSection = typeof(MainWindow).GetMethod("ShowSettingsSection", flags)!;
+
+        refresh.Invoke(window, null);
+        AssertCollapsed(window, "UpdateBadgeButton", "update badge with no update");
+
+        field.SetValue(window, new UpdateInfo(new Version(9, 9, 9), "v9.9.9",
+            new Uri("https://github.com/ithealthtech/CallBridge-Releases/releases/download/v9.9.9/CallBridge-v9.9.9.msi"),
+            new string('A', 64), new Uri("https://github.com/ithealthtech/CallBridge-Releases/releases/tag/v9.9.9")));
+        typeof(MainWindow).GetField("_lastUpdateCheck", flags)!.SetValue(window, (DateTimeOffset?)DateTimeOffset.Now);
+        refresh.Invoke(window, null);
+        AssertVisible(window, "UpdateBadgeButton", "update badge next to the extension");
+        RenderWindowPreview(window, "callbridge-update-badge.png");
+
+        typeof(MainWindow).GetMethod("ShowSettings", flags, Type.EmptyTypes)?.Invoke(window, null);
+        showSection.Invoke(window, ["About"]);
+        AssertVisible(window, "SettingsAboutSection", "About settings section");
+        AssertVisible(window, "AboutInstallUpdateButton", "About install button when an update exists");
+        if (window.FindName("AboutUpdateStatusText") is not TextBlock status || !status.Text.Contains("9.9.9", StringComparison.Ordinal))
+            throw new InvalidOperationException("About should name the available version.");
+        RenderWindowPreview(window, "callbridge-about-update.png");
+
+        field.SetValue(window, null);
+        refresh.Invoke(window, null);
+        AssertCollapsed(window, "AboutInstallUpdateButton", "About install button with no update");
+        if (window.FindName("AboutUpdateStatusText") is not TextBlock upToDate || upToDate.Text != "You're up to date.")
+            throw new InvalidOperationException("About should say the app is up to date after a clean check.");
+        typeof(MainWindow).GetField("_lastUpdateCheck", flags)!.SetValue(window, null);
+        showSection.Invoke(window, ["Audio"]);
+        typeof(MainWindow).GetMethod("ShowHome", flags, Type.EmptyTypes)?.Invoke(window, null);
+    }
     private static string RenderWindowPreview(MainWindow window, string fileName, Action? beforeRender = null)
     {
         if (!window.IsVisible)

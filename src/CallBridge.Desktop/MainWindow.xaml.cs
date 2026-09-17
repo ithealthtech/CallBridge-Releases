@@ -60,6 +60,9 @@ public partial class MainWindow : Window
     private string? _sipCallId;
     private UpdateInfo? _availableUpdate;
     private bool _installingUpdate;
+    private bool _checkingForUpdates;
+    private DateTimeOffset? _lastUpdateCheck;
+    private string? _lastUpdateError;
     private SipCallDirection _sipCallDirection = SipCallDirection.None;
     private string _sipRemoteParty = "";
     private string _sipRemoteNumber = "";
@@ -200,7 +203,8 @@ public partial class MainWindow : Window
             string.IsNullOrWhiteSpace(_settings.Extension) || !IsPhoneConfigured ? "" : _settings.Extension,
             headset,
             _activeCallId is null ? null : ActiveCallMetric.Text,
-            _voicemail.Known ? _voicemail.Summary : null);
+            _voicemail.Known ? _voicemail.Summary : null,
+            _availableUpdate?.Version.ToString());
     }
 
     private TrayPhoneStatus GetTrayStatus() =>
@@ -236,7 +240,8 @@ public partial class MainWindow : Window
             GetTraySnapshot(),
             openWindow: () => OpenFromTray(showSettings: false),
             openSettings: () => OpenFromTray(showSettings: true),
-            quit: RequestExit);
+            quit: RequestExit,
+            checkForUpdates: OpenUpdatesFromTray);
         _trayFlyout.Closed += (_, _) => _trayFlyout = null;
         _trayFlyout.Show();
         _trayFlyout.Activate();
@@ -1413,6 +1418,12 @@ public partial class MainWindow : Window
     private void WireAdminSettings()
     {
         SettingsAudioTabButton.Click += (_, _) => ShowSettingsSection("Audio");
+        SettingsAboutTabButton.Click += (_, _) => ShowSettingsSection("About");
+        CheckForUpdatesButton.Click += async (_, _) => await CheckForUpdatesAsync(manual: true);
+        AboutInstallUpdateButton.Click += async (_, _) => await InstallUpdateAsync();
+        UpdateBadgeButton.Click += async (_, _) => await InstallUpdateAsync();
+        ReleaseNotesButton.Click += (_, _) => OpenReleaseNotes();
+        RefreshUpdateIndicators();
         SettingsSignInTabButton.Click += (_, _) => ShowSettingsSection("SignIn");
         SettingsAdminTabButton.Click += (_, _) => ShowSettingsSection(_pendingAdminSection ?? "General");
         SettingsLockButton.Click += (_, _) => LockAdminSettings();
@@ -1439,6 +1450,7 @@ public partial class MainWindow : Window
 
         SettingsAudioSection.Visibility = section == "Audio" ? Visibility.Visible : Visibility.Collapsed;
         SettingsSignInSection.Visibility = section == "SignIn" ? Visibility.Visible : Visibility.Collapsed;
+        SettingsAboutSection.Visibility = section == "About" ? Visibility.Visible : Visibility.Collapsed;
         SettingsLockedSection.Visibility = section == "Locked" ? Visibility.Visible : Visibility.Collapsed;
         SettingsGeneralSection.Visibility = section == "General" ? Visibility.Visible : Visibility.Collapsed;
         SettingsSipSection.Visibility = section == "SIP" ? Visibility.Visible : Visibility.Collapsed;
@@ -1452,6 +1464,7 @@ public partial class MainWindow : Window
         {
             (SettingsAudioTabButton, "Audio"),
             (SettingsSignInTabButton, "SignIn"),
+            (SettingsAboutTabButton, "About"),
             (SettingsAdminTabButton, "Locked"),
             (SettingsGeneralTabButton, "General"),
             (SettingsSipTabButton, "SIP"),
@@ -3576,22 +3589,78 @@ public partial class MainWindow : Window
         await Task.Delay(TimeSpan.FromSeconds(30));
         while (IsLoaded)
         {
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var update = await UpdateChecker.CheckAsync(timeout.Token);
-                if (update is not null && !_installingUpdate && (_availableUpdate is null || update.Version > _availableUpdate.Version))
-                {
-                    _availableUpdate = update;
-                    ShowUpdateBanner();
-                }
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException)
-            {
-                App.LogStartup($"Update check skipped: {ex.GetType().Name}.");
-            }
+            await CheckForUpdatesAsync(manual: false);
             await Task.Delay(TimeSpan.FromHours(6));
         }
+    }
+
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (_checkingForUpdates || _installingUpdate) return;
+        _checkingForUpdates = true;
+        _lastUpdateError = null;
+        RefreshUpdateIndicators();
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var update = await UpdateChecker.CheckAsync(timeout.Token);
+            _lastUpdateCheck = DateTimeOffset.Now;
+            if (update is not null && (_availableUpdate is null || update.Version > _availableUpdate.Version))
+            {
+                _availableUpdate = update;
+                ShowUpdateBanner();
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or IOException)
+        {
+            App.LogStartup($"Update check skipped: {ex.GetType().Name}.");
+            if (manual) _lastUpdateError = "Couldn't reach the update server. Check your internet connection and try again.";
+        }
+        finally
+        {
+            _checkingForUpdates = false;
+            RefreshUpdateIndicators();
+        }
+    }
+
+    private void RefreshUpdateIndicators()
+    {
+        var update = _availableUpdate;
+        var busy = _checkingForUpdates || _installingUpdate;
+        UpdateBadgeButton.Visibility = update is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateBadgeButton.IsEnabled = !_installingUpdate;
+        if (update is not null) UpdateBadgeButton.ToolTip = $"CallBridge {update.Version} is ready to install. Click to update.";
+
+        AboutVersionText.Text = $"{Branding.ProductName} version {UpdateChecker.CurrentVersion}";
+        CheckForUpdatesButton.IsEnabled = !busy;
+        CheckForUpdatesButton.Content = _checkingForUpdates ? "Checking…" : "Check now";
+        AboutInstallUpdateButton.Visibility = update is null ? Visibility.Collapsed : Visibility.Visible;
+        AboutInstallUpdateButton.IsEnabled = !busy;
+        AboutInstallUpdateButton.Content = update is null ? "Install update" : $"Install {update.Version}";
+        AboutUpdateStatusText.Text = _checkingForUpdates ? "Checking for updates…"
+            : _installingUpdate ? "Installing the update…"
+            : _lastUpdateError is not null ? _lastUpdateError
+            : update is not null ? $"CallBridge {update.Version} is available."
+            : _lastUpdateCheck is null ? "Not checked yet"
+            : "You're up to date.";
+        AboutUpdateDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
+            _lastUpdateError is not null ? "Bad" : update is not null ? "Accent" : _lastUpdateCheck is null || busy ? "Muted" : "Good");
+        AboutLastCheckedText.Text = _lastUpdateCheck is { } checkedAt ? $"Last checked {checkedAt:MMM d, h:mm tt}" : "";
+    }
+
+    private void OpenUpdatesFromTray()
+    {
+        OpenFromTray(showSettings: true);
+        ShowSettingsSection("About");
+        if (_availableUpdate is not null) _ = InstallUpdateAsync();
+        else _ = CheckForUpdatesAsync(manual: true);
+    }
+
+    private void OpenReleaseNotes()
+    {
+        var page = _availableUpdate?.ReleasePage ?? new Uri($"https://github.com/{UpdateChecker.ReleasesRepository}/releases");
+        try { Process.Start(new ProcessStartInfo(page.AbsoluteUri) { UseShellExecute = true }); }
+        catch (System.ComponentModel.Win32Exception ex) { App.LogStartup($"Release notes couldn't open: {ex.GetType().Name}."); }
     }
 
     private void ShowUpdateBanner()
@@ -3602,7 +3671,6 @@ public partial class MainWindow : Window
         InstallUpdateButton.IsEnabled = true;
         InstallUpdateButton.Visibility = Visibility.Visible;
     }
-
     private bool IsCallInProgress()
     {
         var sipStatus = _sip.CurrentCall;
@@ -3622,6 +3690,7 @@ public partial class MainWindow : Window
 
         _installingUpdate = true;
         InstallUpdateButton.IsEnabled = false;
+        RefreshUpdateIndicators();
         try
         {
             var progress = new Progress<int>(percent => StatusText.Text = $"Downloading CallBridge {update.Version}… {percent}%");
@@ -3654,6 +3723,7 @@ public partial class MainWindow : Window
         finally
         {
             _installingUpdate = false;
+            RefreshUpdateIndicators();
         }
     }
     private void ShowBanner(string message, string dotHex)

@@ -12,7 +12,8 @@ public sealed record TraySnapshot(
     string Extension,
     string Headset,
     string? ActiveCaller,
-    string? Voicemail = null);
+    string? Voicemail = null,
+    string? AvailableUpdate = null);
 
 /// <summary>
 /// Small pop-up shown from the notification-area icon. It closes when it loses focus.
@@ -27,7 +28,7 @@ public sealed class TrayFlyout : Window
     private static Brush Accent => ThemePalette.Brush("Accent");
     private bool _closing;
 
-    public TrayFlyout(TraySnapshot snapshot, Action openWindow, Action openSettings, Action quit)
+    public TrayFlyout(TraySnapshot snapshot, Action openWindow, Action openSettings, Action quit, Action? checkForUpdates = null)
     {
         ThemeWindows.MergeTheme(this);
         FontFamily = (FontFamily)FindResource("UiFont");
@@ -63,13 +64,24 @@ public sealed class TrayFlyout : Window
         actions.Children.Add(open);
         root.Children.Add(actions);
 
+        var footer = new DockPanel { Margin = new Thickness(14, 0, 14, 14), LastChildFill = false };
+        if (checkForUpdates is not null)
+        {
+            var updates = ActionButton(snapshot.AvailableUpdate is null ? "Check for updates" : $"Install update {snapshot.AvailableUpdate}", primary: false, () => Run(checkForUpdates));
+            updates.Background = Surface;
+            updates.BorderThickness = new Thickness(0);
+            updates.Foreground = snapshot.AvailableUpdate is null ? Muted : Accent;
+            AutomationProperties.SetName(updates, snapshot.AvailableUpdate is null ? "Check for updates" : "Install update");
+            DockPanel.SetDock(updates, Dock.Left);
+            footer.Children.Add(updates);
+        }
         var quitButton = ActionButton("Quit CallBridge", primary: false, () => Run(quit));
-        quitButton.Margin = new Thickness(14, 0, 14, 14);
         quitButton.Background = Surface;
         quitButton.BorderThickness = new Thickness(0);
         quitButton.Foreground = Muted;
-        quitButton.HorizontalAlignment = HorizontalAlignment.Right;
-        root.Children.Add(quitButton);
+        DockPanel.SetDock(quitButton, Dock.Right);
+        footer.Children.Add(quitButton);
+        root.Children.Add(footer);
 
         Content = root;
         AutomationProperties.SetName(this, "CallBridge status");
