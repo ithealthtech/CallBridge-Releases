@@ -147,7 +147,53 @@ catch (ArgumentException)
 {
 }
 
-Console.WriteLine("ConnectWise PSA and Platform OAuth tests passed: authentication, token reuse, rate-limit pause, contact mapping, deep links, and ticket payloads.");
+// ---- Platform ticketing
+const string companyUuid = "11111111-1111-1111-1111-111111111111";
+const string ticketUuid = "22222222-2222-2222-2222-222222222222";
+const string boardUuid = "33333333-3333-3333-3333-333333333333";
+const string sourceUuid = "44444444-4444-4444-4444-444444444444";
+var ticketingHandler = new FakePlatformTicketingHandler();
+var ticketingSettings = new AppSettings
+{
+    ConnectWiseTicketingMode = ConnectWiseTicketingMode.Platform,
+    ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
+    ConnectWisePlatformClientId = "platform-client",
+    ConnectWisePlatformClientSecret = "platform-ticketing-" + testOnlyCredential,
+    ConnectWisePlatformScopes = ConnectWisePlatformClient.TicketingScopes,
+    ConnectWisePlatformBoardId = boardUuid,
+    ConnectWisePlatformSourceId = sourceUuid
+};
+using (var ticketingPlatform = new ConnectWisePlatformClient(ticketingSettings, ticketingHandler))
+{
+    var platformCompanies = await ticketingPlatform.GetCompaniesAsync(refresh: true);
+    Assert(platformCompanies.Count == 1 && platformCompanies[0].Id == companyUuid && platformCompanies[0].Name == "Acme Platform", "Platform company mapping failed.");
+    Assert(platformCompanies[0].Phones.SequenceEqual(new[] { "+19085550100", "+19085550199" }), "Platform company phones should include the primary contact and primary site numbers.");
+    Assert((await ticketingPlatform.ResolveCompanyAsync("101", null))?.Id == companyUuid, "A PSA company ID should resolve to the platform company through its external ID.");
+    Assert((await ticketingPlatform.ResolveCompanyAsync("999", "acme platform"))?.Id == companyUuid, "An unmapped PSA company should resolve by exact name.");
+
+    var platformTickets = await ticketingPlatform.GetOpenTicketsAsync(companyUuid);
+    Assert(ticketingHandler.SawOpenTicketQuery, "Platform open-ticket query should filter by company and exclude closed statuses.");
+    Assert(platformTickets.Count == 1 && platformTickets[0].Id == ticketUuid && platformTickets[0].DisplayNumber == "5150" && platformTickets[0].Status == "In Progress", "Platform ticket mapping failed.");
+
+    var createdPlatform = await ticketingPlatform.CreateTicketAsync(companyUuid, boardUuid, sourceUuid, "Phone support", "Caller needs help.");
+    Assert(ticketingHandler.SawCreateTicket && createdPlatform.Id == ticketUuid && createdPlatform.DisplayNumber == "5151", "Platform ticket creation payload or parsing failed.");
+
+    await ticketingPlatform.AddTicketNoteAsync(ticketUuid, "Called back.");
+    Assert(ticketingHandler.SawInternalNote, "Platform notes must be posted as partner-only (visibility 2).");
+
+    var boards = await ticketingPlatform.GetServiceBoardsAsync();
+    Assert(boards.Count == 1 && boards[0].Id == boardUuid, "Inactive boards should be hidden and active boards listed.");
+    try { await ticketingPlatform.AddTicketNoteAsync("48213", "x"); throw new InvalidOperationException("Numeric ticket IDs must not be sent to the platform."); }
+    catch (ArgumentException) { }
+}
+var timeNote = ConnectWisePlatformClient.TimeNoteText("tgifol", new DateTimeOffset(2026, 9, 17, 14, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 17, 14, 12, 0, TimeSpan.Zero), "Reset password");
+Assert(timeNote.Contains("12 min") && timeNote.Contains("tgifol") && timeNote.EndsWith("Reset password"), "Platform time note text is wrong.");
+Assert(!ConnectWiseTicketing.RecordsTimeAsEntry(ticketUuid) && ConnectWiseTicketing.RecordsTimeAsEntry("48213"), "Time should be a PSA entry only for numeric PSA tickets.");
+Assert(ConnectWiseClient.IsCompanyId(companyUuid) && ConnectWiseClient.IsCompanyId("101") && !ConnectWiseClient.IsCompanyId("101 or 1=1"), "Company IDs must be numeric PSA IDs or platform UUIDs.");
+Assert(ConnectWiseTicketing.TicketCreationProblem(ticketingSettings) is null, "Configured platform ticketing should allow ticket creation.");
+Assert(ConnectWiseTicketing.TicketCreationProblem(new AppSettings { ConnectWiseTicketingMode = "Platform", ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl, ConnectWisePlatformClientId = "a", ConnectWisePlatformClientSecret = "b", ConnectWisePlatformScopes = "c" }) is not null, "Platform ticket creation needs a board and source.");
+Assert(ConnectWiseTicketingMode.Normalize("bogus") == ConnectWiseTicketingMode.Psa, "Unknown ticketing modes should fall back to PSA.");
+Console.WriteLine("ConnectWise PSA, Platform OAuth, and Platform ticketing tests passed: authentication, token reuse, rate-limit pause, contact mapping, deep links, and ticket payloads.");
 
 static void Assert(bool condition, string message)
 {
@@ -295,4 +341,58 @@ sealed class FakePlatformHandler(string expectedClientSecret, bool exhaustAfterR
     {
         if (!condition) throw new InvalidOperationException(message);
     }
+}
+
+sealed class FakePlatformTicketingHandler : HttpMessageHandler
+{
+    public bool SawOpenTicketQuery { get; private set; }
+    public bool SawCreateTicket { get; private set; }
+    public bool SawInternalNote { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        var query = Uri.UnescapeDataString(request.RequestUri.Query);
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        if (path == "/v1/token") return Json("""{"access_token":"platform-ticketing-token","expires_in":3599}""");
+        if (request.Headers.Authorization?.Parameter != "platform-ticketing-token") return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        switch (path)
+        {
+            case "/api/platform/v1/company/companies":
+                return Json("""
+                [{"id":"11111111-1111-1111-1111-111111111111","name":"Acme Platform","externalIds":[{"externalId":"101"}],
+                  "primaryContact":{"id":"55555555-5555-5555-5555-555555555555","firstName":"Avery","lastName":"Stone","primaryPhoneNumber":{"countryCode":"1","nationalNumber":"9085550100","activeFlag":true}},
+                  "primarySite":{"primaryPhoneNumber":{"countryCode":"+1","nationalNumber":"9085550199"}}},
+                 {"id":"not-a-uuid","name":"Broken"}]
+                """);
+            case "/api/platform/v1/service/ticketing/statuses":
+                return Json("""[{"id":"66666666-6666-6666-6666-666666666666","name":"Closed","category":"Closed"},{"id":"77777777-7777-7777-7777-777777777777","name":"In Progress","category":"InProgress"}]""");
+            case "/api/platform/v1/service/ticketing/service-boards":
+                return Json("""[{"id":"33333333-3333-3333-3333-333333333333","name":"Help Desk"},{"id":"88888888-8888-8888-8888-888888888888","name":"Old","inactiveFlag":true}]""");
+            case "/api/platform/v2/service/ticketing/tickets" when request.Method == HttpMethod.Get:
+                SawOpenTicketQuery = query.Contains("companyIds=11111111-1111-1111-1111-111111111111")
+                    && query.Contains("statusIds=[notIn],66666666-6666-6666-6666-666666666666")
+                    && query.Contains("pageSize=5") && query.Contains("pageNum=1");
+                return Json("""{"tickets":[{"id":"22222222-2222-2222-2222-222222222222","number":"5150","summary":"Printer down","status":{"name":"In Progress"},"priority":{"name":"High"}}],"totalCount":1}""");
+            case "/api/platform/v2/service/ticketing/tickets" when request.Method == HttpMethod.Post:
+                using (var doc = JsonDocument.Parse(body))
+                {
+                    var r = doc.RootElement;
+                    SawCreateTicket = r.GetProperty("summary").GetString() == "Phone support"
+                        && r.GetProperty("description").GetString() == "Caller needs help."
+                        && r.GetProperty("serviceBoard").GetProperty("id").GetString() == "33333333-3333-3333-3333-333333333333"
+                        && r.GetProperty("source").GetProperty("id").GetString() == "44444444-4444-4444-4444-444444444444"
+                        && r.GetProperty("company").GetProperty("id").GetString() == "11111111-1111-1111-1111-111111111111";
+                }
+                return Json("""{"id":"22222222-2222-2222-2222-222222222222","number":"5151"}""", HttpStatusCode.Created);
+            case "/api/platform/v1/service/ticketing/tickets/22222222-2222-2222-2222-222222222222/notes":
+                using (var doc = JsonDocument.Parse(body))
+                    SawInternalNote = doc.RootElement.GetProperty("visibility").GetInt32() == 2 && doc.RootElement.GetProperty("detail").GetString() == "Called back.";
+                return Json("{}", HttpStatusCode.Created);
+        }
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
+        new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 }

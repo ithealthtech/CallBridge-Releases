@@ -585,6 +585,14 @@
 
                         <StackPanel x:Name="SettingsConnectWiseSection" Visibility="Collapsed">
                             <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
+                                <StackPanel Margin="4,0">
+                                    <TextBlock Text="Ticketing connection" Style="{StaticResource SettingsHeading}"/>
+                                    <TextBlock Text="Choose which ConnectWise API handles tickets, notes, and caller lookup. The Platform API has no time entries, so confirmed call time is saved as an internal note on platform tickets." Style="{StaticResource SettingsFieldLabel}" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                    <ComboBox x:Name="SettingsCwModeBox" MinHeight="36" MaxWidth="360" HorizontalAlignment="Left" DisplayMemberPath="Label" SelectedValuePath="Value" ToolTip="Which ConnectWise API CallBridge uses for tickets" AutomationProperties.Name="Ticketing connection"/>
+                                    <TextBlock x:Name="SettingsCwModeHelpText" Text="" Style="{StaticResource SettingsFieldLabel}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource SettingsCard}" Margin="0,0,0,10">
                                 <StackPanel>
                                     <DockPanel Margin="4,0,4,12">
                                         <Button x:Name="SettingsTestPsaButton" DockPanel.Dock="Right" Content="Test PSA" Style="{StaticResource ToolbarButton}" ToolTip="Test ConnectWise PSA API member credentials" AutomationProperties.Name="Test ConnectWise PSA"/>
@@ -639,10 +647,10 @@
                             <Border Style="{StaticResource SettingsCard}">
                                 <StackPanel>
                                     <DockPanel Margin="4,0,4,12">
-                                        <Button x:Name="SettingsTestPlatformButton" DockPanel.Dock="Right" Content="Test OAuth" Style="{StaticResource ToolbarButton}" ToolTip="Test ConnectWise Platform OAuth credentials" AutomationProperties.Name="Test ConnectWise Platform OAuth"/>
+                                        <Button x:Name="SettingsTestPlatformButton" DockPanel.Dock="Right" Content="Test Platform" Style="{StaticResource ToolbarButton}" ToolTip="Test ConnectWise Platform OAuth credentials" AutomationProperties.Name="Test ConnectWise Platform OAuth"/>
                                         <StackPanel>
-                                            <TextBlock Text="Platform OAuth" Style="{StaticResource SettingsHeading}"/>
-                                            <TextBlock Text="Developer access for platform APIs." Style="{StaticResource SettingsFieldLabel}" Margin="0,2,12,0"/>
+                                            <TextBlock Text="ConnectWise Platform" Style="{StaticResource SettingsHeading}"/>
+                                            <TextBlock Text="OAuth access from Integrations &gt; API Access. Needs the ticket read, create, and update scopes plus company read." Style="{StaticResource SettingsFieldLabel}" TextWrapping="Wrap" Margin="0,2,12,0"/>
                                         </StackPanel>
                                     </DockPanel>
                                     <UniformGrid x:Name="SettingsCwPlatformGrid" Columns="2">
@@ -662,7 +670,19 @@
                                             <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Scopes"/>
                                             <TextBox x:Name="SettingsCwPlatformScopesText" ToolTip="Space-separated ConnectWise Platform scopes" AutomationProperties.Name="OAuth scopes"/>
                                         </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Default service board"/>
+                                            <ComboBox x:Name="SettingsCwPlatformBoardBox" MinHeight="36" DisplayMemberPath="Name" ToolTip="Service board for tickets created from CallBridge" AutomationProperties.Name="Default platform service board"/>
+                                        </StackPanel>
+                                        <StackPanel Style="{StaticResource SettingsFieldGroup}">
+                                            <TextBlock Style="{StaticResource SettingsFieldLabel}" Text="Ticket source"/>
+                                            <ComboBox x:Name="SettingsCwPlatformSourceBox" MinHeight="36" DisplayMemberPath="Name" ToolTip="Source recorded on tickets created from CallBridge (for example Phone)" AutomationProperties.Name="Default platform ticket source"/>
+                                        </StackPanel>
                                     </UniformGrid>
+                                    <WrapPanel Margin="4,4,4,0">
+                                        <Button x:Name="SettingsLoadPlatformBoardsButton" Content="Load boards and sources" Style="{StaticResource ToolbarButton}" Margin="0,0,6,0" ToolTip="Load service boards and sources from ConnectWise Platform" AutomationProperties.Name="Load platform boards and sources"/>
+                                        <TextBlock Text="Save settings after testing the connection, then load and choose the defaults." Style="{StaticResource SettingsFieldLabel}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                    </WrapPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

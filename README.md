@@ -116,3 +116,13 @@ CallBridge is under active development and is not yet approved for production em
 CallBridge checks the public [CallBridge-Releases](https://github.com/ithealthtech/CallBridge-Releases) repository 30 seconds after it starts and every 6 hours after that. That repository holds installers only; this source repository stays private. When a newer release exists, a banner offers **Install update**. CallBridge downloads the MSI, refuses it unless its SHA256 matches the `SHA256: <hash>` line in the release notes, waits until no call is active, then starts Windows Installer (which asks for admin approval) and closes. An **Update available** badge also appears next to the extension in the header. To check by hand, use **Check for updates** in the tray flyout or **Settings → About → Check now**. Drafts, prereleases, and installers hosted anywhere other than that repository's release downloads are ignored.
 
 To publish a release: build the MSI with `installer\build-msi.ps1`, then create the release with the same tag in **both** repositories, attach the MSI, and put the printed `SHA256: <hash>` line in the notes. Without that line, installed copies won't offer the update.
+
+## ConnectWise ticketing connection
+
+Settings > ConnectWise > **Ticketing connection** chooses which ConnectWise API CallBridge uses:
+
+- **ConnectWise PSA** (default): the PSA REST API with an API member (site, company ID, public/private keys, client ID). Everything works, including time entries.
+- **ConnectWise Platform**: the Platform Partner API with OAuth client credentials from Integrations > API Access. Required scopes: `platform.tickets.read platform.tickets.create platform.tickets.update platform.companies.read`. After testing, use **Load boards and sources** to choose the default service board and source for new tickets.
+- **Platform, with PSA contact lookup**: tickets and notes on Platform; the contact directory syncs from PSA. PSA company IDs are matched to Platform companies by linked external ID, then by exact name.
+
+Platform API limits, per ConnectWise's published API: there are no time entries (confirmed call time is saved as a partner-only note on the ticket), no contact search (callers are matched on each company's main number and primary contact, plus contacts imported into CallBridge), and no ticket web links. Notes and time always go to the API that owns the ticket: numeric IDs are PSA, UUIDs are Platform.

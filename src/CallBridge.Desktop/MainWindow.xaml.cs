@@ -306,16 +306,16 @@ public partial class MainWindow : Window
         var companyName = Value(match, "companyName");
         var contactName = Value(match, "contactName");
         var lastCall = await LastCallSummaryAsync(companyId, companyName, timeout.Token);
-        if (!ConnectWiseClient.IsConfigured(_settings))
-            return new IncomingCallContext(contactName, companyName, companyId, [], "Connect ConnectWise PSA in Settings to see open tickets.", lastCall);
-        if (!long.TryParse(companyId, out _))
+        if (!ConnectWiseTicketing.IsConfigured(_settings))
+            return new IncomingCallContext(contactName, companyName, companyId, [], "Connect ConnectWise in Settings to see open tickets.", lastCall);
+        if (!ConnectWiseClient.IsCompanyId(companyId))
             return new IncomingCallContext(contactName, companyName, companyId, [], "This contact isn't linked to a ConnectWise company.", lastCall);
 
         try
         {
-            using var client = new ConnectWiseClient(_settings);
-            var tickets = await client.GetOpenTicketsAsync(companyId, 5, timeout.Token);
-            return new IncomingCallContext(contactName, companyName, companyId, tickets, null, lastCall);
+            using var client = new ConnectWiseTicketing(_settings);
+            var (tickets, resolvedCompanyId) = await client.GetOpenTicketsAsync(companyId, companyName, 5, timeout.Token);
+            return new IncomingCallContext(contactName, companyName, resolvedCompanyId, tickets, null, lastCall);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
         {
@@ -354,8 +354,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            using var client = new ConnectWiseClient(_settings);
-            Process.Start(new ProcessStartInfo(client.TicketUrl(ticketId)) { UseShellExecute = true });
+            using var client = new ConnectWiseTicketing(_settings);
+            if (client.TicketUrl(ticketId) is not { } url)
+            {
+                var number = _callContext?.Tickets.FirstOrDefault(ticket => ticket.Id == ticketId)?.DisplayNumber ?? ticketId;
+                ShowBanner($"Open ticket #{number} in ConnectWise. The platform API doesn't provide a direct link.", WarnHex);
+                return;
+            }
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch (Exception ex) { ShowApiError($"The ticket couldn't be opened: {ex.Message}"); }
     }
@@ -370,7 +376,7 @@ public partial class MainWindow : Window
         window?.Close();
     }
 
-    private sealed record PendingTimeEntry(string TicketId, DateTimeOffset Start, DateTimeOffset End, string Notes);
+    private sealed record PendingTimeEntry(string TicketId, string TicketNumber, DateTimeOffset Start, DateTimeOffset End, string Notes);
 
     private void WireTimeEntryDraft()
     {
@@ -388,10 +394,10 @@ public partial class MainWindow : Window
     {
         if (_callConnectedAt is not { } start) return;
         if (CallTicketPicker.SelectedItem is not CallTicketChoice { Id.Length: > 0 } ticket) return;
-        if (!ConnectWiseClient.IsConfigured(_settings)) return;
+        if (!ConnectWiseTicketing.IsConfigured(_settings)) return;
         var end = DateTimeOffset.UtcNow;
         var notes = CallNotesText.Text.Trim();
-        _pendingTimeEntries.Add(new PendingTimeEntry(ticket.Id, start, end, string.IsNullOrWhiteSpace(notes) ? $"Phone call with {CallContactValue.Text}" : notes));
+        _pendingTimeEntries.Add(new PendingTimeEntry(ticket.Id, TicketNumber(ticket.Id), start, end, string.IsNullOrWhiteSpace(notes) ? $"Phone call with {CallContactValue.Text}" : notes));
         ShowNextTimeEntryDraft();
     }
 
@@ -405,11 +411,14 @@ public partial class MainWindow : Window
         }
         TimeEntryMinutesText.Text = Math.Max(1, (int)Math.Ceiling((entry.End - entry.Start).TotalMinutes)).ToString();
         TimeEntryTargetText.Text = _pendingTimeEntries.Count > 1
-            ? $"min on #{entry.TicketId} ({_pendingTimeEntries.Count - 1} more waiting)"
-            : $"min on #{entry.TicketId}";
-        TimeEntryDetailText.Text = string.IsNullOrWhiteSpace(_settings.ConnectWiseMemberIdentifier)
+            ? $"min on #{entry.TicketNumber} ({_pendingTimeEntries.Count - 1} more waiting)"
+            : $"min on #{entry.TicketNumber}";
+        var asEntry = ConnectWiseTicketing.RecordsTimeAsEntry(entry.TicketId);
+        TimeEntryDetailText.Text = asEntry && string.IsNullOrWhiteSpace(_settings.ConnectWiseMemberIdentifier)
             ? "Add your ConnectWise member ID in Settings > Sign-in to save time."
-            : $"{entry.Start.ToLocalTime():h:mm tt} call · logged as {_settings.ConnectWiseMemberIdentifier}";
+            : asEntry
+                ? $"{entry.Start.ToLocalTime():h:mm tt} call · logged as {_settings.ConnectWiseMemberIdentifier}"
+                : $"{entry.Start.ToLocalTime():h:mm tt} call · saved as an internal time note (the platform has no time entries)";
         TimeEntryDraft.Visibility = Visibility.Visible;
         SaveTimeEntryButton.IsEnabled = true;
     }
@@ -428,7 +437,7 @@ public partial class MainWindow : Window
             TimeEntryDetailText.Text = "Enter between 1 and 1440 minutes.";
             return;
         }
-        if (string.IsNullOrWhiteSpace(_settings.ConnectWiseMemberIdentifier))
+        if (ConnectWiseTicketing.RecordsTimeAsEntry(entry.TicketId) && string.IsNullOrWhiteSpace(_settings.ConnectWiseMemberIdentifier))
         {
             ShowSettings();
             ShowSettingsSection("SignIn");
@@ -439,10 +448,10 @@ public partial class MainWindow : Window
         SetBusyAction(SaveTimeEntryButton, "Saving time to ConnectWise...");
         try
         {
-            using var client = new ConnectWiseClient(_settings);
-            await client.CreateTimeEntryAsync(entry.TicketId, _settings.ConnectWiseMemberIdentifier, entry.Start, entry.Start.AddMinutes(minutes), entry.Notes);
+            using var client = new ConnectWiseTicketing(_settings);
+            await client.RecordTimeAsync(entry.TicketId, _settings.ConnectWiseMemberIdentifier, entry.Start, entry.Start.AddMinutes(minutes), entry.Notes);
             HideTimeEntryDraft();
-            ShowBanner($"Logged {minutes} min on ticket #{entry.TicketId}.", GoodHex);
+            ShowBanner($"Logged {minutes} min on ticket #{entry.TicketNumber}.", GoodHex);
         }
         catch (Exception ex)
         {
@@ -565,7 +574,7 @@ public partial class MainWindow : Window
 
         // No ticket is the default so notes and time only reach a ticket the technician chose.
         var choices = new List<CallTicketChoice> { CallTicketChoice.None };
-        choices.AddRange(context.Tickets.Select(ticket => new CallTicketChoice(ticket.Id, $"#{ticket.Id} · {ticket.Summary}")));
+        choices.AddRange(context.Tickets.Select(ticket => new CallTicketChoice(ticket.Id, $"#{ticket.DisplayNumber} · {ticket.Summary}")));
         CallTicketPicker.ItemsSource = choices;
         CallTicketPicker.SelectedItem = choices.FirstOrDefault(choice => choice.Id == chosenTicketId) ?? CallTicketChoice.None;
         UpdateCallNoteState();
@@ -577,7 +586,7 @@ public partial class MainWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        row.Children.Add(new TextBlock { Text = $"#{ticket.Id}", FontSize = 12, Foreground = Brush(MutedHex), FontFamily = (FontFamily)FindResource("MonoFont"), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock { Text = $"#{ticket.DisplayNumber}", FontSize = 12, Foreground = Brush(MutedHex), FontFamily = (FontFamily)FindResource("MonoFont"), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center });
         var summary = new TextBlock { Text = string.IsNullOrWhiteSpace(ticket.Summary) ? "(no summary)" : ticket.Summary, FontWeight = FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, ToolTip = ticket.Summary };
         Grid.SetColumn(summary, 1);
         row.Children.Add(summary);
@@ -594,9 +603,9 @@ public partial class MainWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(2, 6, 2, 6),
             MinHeight = 0,
-            ToolTip = $"Open ticket #{ticket.Id} in ConnectWise"
+            ToolTip = $"Open ticket #{ticket.DisplayNumber} in ConnectWise"
         };
-        AutomationProperties.SetName(button, $"Ticket {ticket.Id}: {ticket.Summary}");
+        AutomationProperties.SetName(button, $"Ticket {ticket.DisplayNumber}: {ticket.Summary}");
         button.Click += (_, _) => OpenConnectWiseTicket(ticket.Id);
         return new Border { BorderBrush = (Brush)FindResource("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Child = button };
     }
@@ -628,8 +637,8 @@ public partial class MainWindow : Window
         CallNoteStatusText.Text = !hasTicket
             ? "Choose a ticket to save notes to ConnectWise."
             : note.Length == 0
-                ? $"Notes are saved to #{ticket!.Id} as an internal note when you save or hang up."
-                : $"Unsaved notes for #{ticket!.Id}.";
+                ? $"Notes are saved to #{TicketNumber(ticket!.Id)} as an internal note when you save or hang up."
+                : $"Unsaved notes for #{TicketNumber(ticket!.Id)}.";
     }
 
     private async Task SaveCallNoteAsync()
@@ -642,7 +651,7 @@ public partial class MainWindow : Window
         {
             await AddTicketNoteAsync(ticket.Id, note);
             _lastSavedNote = note;
-            CallNoteStatusText.Text = $"Saved as an internal note on #{ticket.Id} at {DateTime.Now:h:mm tt}.";
+            CallNoteStatusText.Text = $"Saved as an internal note on #{TicketNumber(ticket.Id)} at {DateTime.Now:h:mm tt}.";
         }
         catch (Exception ex)
         {
@@ -657,17 +666,22 @@ public partial class MainWindow : Window
 
     private async Task AddTicketNoteAsync(string ticketId, string note)
     {
-        if (!ConnectWiseClient.IsConfigured(_settings)) throw new InvalidOperationException("Connect ConnectWise PSA in Settings first.");
-        using var client = new ConnectWiseClient(_settings);
+        if (!ConnectWiseTicketing.IsConfigured(_settings)) throw new InvalidOperationException("Connect ConnectWise in Settings first.");
+        using var client = new ConnectWiseTicketing(_settings);
         await client.AddTicketNoteAsync(ticketId, note);
     }
+
+    /// <summary>The number techs recognize for a ticket in the current call (platform ticket IDs are UUIDs).</summary>
+    private string TicketNumber(string ticketId) =>
+        _callContext?.Tickets.FirstOrDefault(ticket => ticket.Id == ticketId)?.DisplayNumber
+        ?? (ConnectWisePlatformClient.IsPlatformId(ticketId) ? ticketId[..8] : ticketId);
 
     /// <summary>Keeps notes from being lost when a call ends: saves them to the chosen ticket, or copies them to the clipboard.</summary>
     private void PreserveCallNotesOnEnd()
     {
         var note = CallNotesText.Text.Trim();
         if (note.Length == 0 || note == _lastSavedNote) return;
-        if (CallTicketPicker.SelectedItem is CallTicketChoice { Id.Length: > 0 } ticket && ConnectWiseClient.IsConfigured(_settings))
+        if (CallTicketPicker.SelectedItem is CallTicketChoice { Id.Length: > 0 } ticket && ConnectWiseTicketing.IsConfigured(_settings))
         {
             _ = SaveNotesAfterCallAsync(ticket.Id, note);
             return;
@@ -688,12 +702,12 @@ public partial class MainWindow : Window
         try
         {
             await AddTicketNoteAsync(ticketId, note);
-            ShowBanner($"Call notes were saved to ticket #{ticketId}.", GoodHex);
+            ShowBanner($"Call notes were saved to ticket #{TicketNumber(ticketId)}.", GoodHex);
         }
         catch (Exception ex)
         {
             try { Clipboard.SetText(note); } catch (Exception clipboardError) when (clipboardError is COMException or ExternalException) { }
-            ShowBanner($"Call notes couldn't be saved to #{ticketId} ({ex.Message}). They were copied to your clipboard.", WarnHex);
+            ShowBanner($"Call notes couldn't be saved to #{TicketNumber(ticketId)} ({ex.Message}). They were copied to your clipboard.", WarnHex);
         }
     }
 
@@ -715,17 +729,14 @@ public partial class MainWindow : Window
     private async Task CreateTicketForCallAsync()
     {
         var context = _callContext ?? new IncomingCallContext(null, null, null, [], null);
-        if (!ConnectWiseClient.IsConfigured(_settings)) { ShowWarning("Connect ConnectWise PSA in Settings first."); return; }
-        if (_settings.ConnectWiseBoardId <= 0) { ShowWarning("Ask your admin to set a default service board ID in Settings > ConnectWise."); return; }
+        if (ConnectWiseTicketing.TicketCreationProblem(_settings) is { } problem) { ShowWarning(problem); return; }
         var editor = new TicketWindow(context.CompanyName ?? "", context.ContactName ?? CallContactValue.Text, CallNumberValue.Text, context.CompanyId ?? "", SearchCompaniesAsync) { Owner = this };
         if (editor.ShowDialog() != true) return;
         try
         {
-            using var client = new ConnectWiseClient(_settings);
-            var created = await client.CreateTicketAsync(editor.CompanyId, _settings.ConnectWiseBoardId, editor.Summary, editor.Description);
-            var ticketId = Value(created, "id");
-            if (string.IsNullOrWhiteSpace(ticketId)) return;
-            var summary = new ConnectWiseTicketSummary(ticketId, editor.Summary, "", "New");
+            using var client = new ConnectWiseTicketing(_settings);
+            var summary = await client.CreateTicketAsync(editor.CompanyId, editor.CompanyName, editor.Summary, editor.Description);
+            var ticketId = summary.Id;
             var sameCompany = context.CompanyId == editor.CompanyId;
             ApplyCallContext(context with
             {
@@ -734,14 +745,14 @@ public partial class MainWindow : Window
                 Tickets = sameCompany ? [summary, .. context.Tickets] : [summary],
                 Message = null
             }, selectTicketId: ticketId);
-            CallNoteStatusText.Text = $"Created ticket #{ticketId}. Notes will be saved to it.";
+            CallNoteStatusText.Text = $"Created ticket #{summary.DisplayNumber}. Notes will be saved to it.";
         }
         catch (Exception ex) { ShowWarning($"Ticket creation failed: {ex.Message}"); }
     }
 
     private async Task<IReadOnlyList<ConnectWiseCompanySummary>> SearchCompaniesAsync(string query)
     {
-        using var client = new ConnectWiseClient(_settings);
+        using var client = new ConnectWiseTicketing(_settings);
         return await client.SearchCompaniesAsync(query);
     }
 
@@ -1089,6 +1100,9 @@ public partial class MainWindow : Window
             SetSettingsStatus("Changes discarded. Saved settings are shown.", "neutral");
         };
         SettingsTestPlatformButton.Click += async (_, _) => await TestSettingsPlatformAsync();
+        SettingsLoadPlatformBoardsButton.Click += async (_, _) => await LoadPlatformBoardsAsync();
+        SettingsCwModeBox.ItemsSource = ConnectWiseTicketingMode.Choices.Select(choice => new { choice.Value, choice.Label }).ToList();
+        SettingsCwModeBox.SelectionChanged += (_, _) => UpdateConnectWiseModeHelp();
         SettingsTestPsaButton.Click += async (_, _) => await TestSettingsPsaAsync();
         SettingsRefreshAudioButton.Click += (_, _) => RefreshAudioDevices(true);
         SettingsTestMicrophoneButton.Click += async (_, _) => await TestMicrophoneAsync();
@@ -1166,6 +1180,10 @@ public partial class MainWindow : Window
             SettingsCwPlatformClientIdText.Text = _settings.ConnectWisePlatformClientId;
             SettingsCwPlatformSecret.Password = _settings.ConnectWisePlatformClientSecret;
             SettingsCwPlatformScopesText.Text = _settings.ConnectWisePlatformScopes;
+            SettingsCwModeBox.SelectedValue = ConnectWiseTicketingMode.Normalize(_settings.ConnectWiseTicketingMode);
+            SetPlatformLookupChoices(SettingsCwPlatformBoardBox, [], _settings.ConnectWisePlatformBoardId, _settings.ConnectWisePlatformBoardName);
+            SetPlatformLookupChoices(SettingsCwPlatformSourceBox, [], _settings.ConnectWisePlatformSourceId, _settings.ConnectWisePlatformSourceName);
+            UpdateConnectWiseModeHelp();
             SettingsCwSiteText.Text = _settings.ConnectWiseSite;
             SettingsCwCompanyText.Text = _settings.ConnectWiseCompanyId;
             SettingsCwPublicText.Text = _settings.ConnectWisePublicKey;
@@ -1662,6 +1680,17 @@ public partial class MainWindow : Window
         candidate.ConnectWisePlatformClientId = platformClientId;
         candidate.ConnectWisePlatformClientSecret = platformSecret;
         candidate.ConnectWisePlatformScopes = platformScopes;
+        candidate.ConnectWiseTicketingMode = ConnectWiseTicketingMode.Normalize(SettingsCwModeBox.SelectedValue as string);
+        if (SettingsCwPlatformBoardBox.SelectedItem is ConnectWisePlatformClient.PlatformLookup board)
+        {
+            candidate.ConnectWisePlatformBoardId = board.Id;
+            candidate.ConnectWisePlatformBoardName = board.Name;
+        }
+        if (SettingsCwPlatformSourceBox.SelectedItem is ConnectWisePlatformClient.PlatformLookup source)
+        {
+            candidate.ConnectWisePlatformSourceId = source.Id;
+            candidate.ConnectWisePlatformSourceName = source.Name;
+        }
         candidate.ConnectWiseSite = SettingsCwSiteText.Text.Trim();
         candidate.ConnectWiseCompanyId = SettingsCwCompanyText.Text.Trim();
         candidate.ConnectWisePublicKey = SettingsCwPublicText.Text.Trim();
@@ -1776,6 +1805,55 @@ public partial class MainWindow : Window
         finally { RestoreAction(SettingsTestPsaButton, "Test ConnectWise PSA API member credentials"); }
     }
 
+    private void UpdateConnectWiseModeHelp()
+    {
+        SettingsCwModeHelpText.Text = ConnectWiseTicketingMode.Normalize(SettingsCwModeBox.SelectedValue as string) switch
+        {
+            ConnectWiseTicketingMode.Platform => "Tickets and notes use ConnectWise Platform. Callers match on each company's main number and primary contact, plus contacts you import into CallBridge.",
+            ConnectWiseTicketingMode.PlatformWithPsa => "Tickets and notes use ConnectWise Platform. The contact directory syncs from PSA for full caller matching; PSA companies are matched to Platform by their linked ID or exact name.",
+            _ => "Everything uses the ConnectWise PSA API member below, including time entries."
+        };
+    }
+
+    private static void SetPlatformLookupChoices(ComboBox box, IReadOnlyList<ConnectWisePlatformClient.PlatformLookup> items, string selectedId, string selectedName)
+    {
+        var list = items.ToList();
+        if (ConnectWisePlatformClient.IsPlatformId(selectedId) && list.All(item => !string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase)))
+            list.Insert(0, new ConnectWisePlatformClient.PlatformLookup(selectedId, string.IsNullOrWhiteSpace(selectedName) ? "Saved selection" : selectedName));
+        box.ItemsSource = list;
+        box.SelectedItem = list.FirstOrDefault(item => string.Equals(item.Id, selectedId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task LoadPlatformBoardsAsync()
+    {
+        if (!TryReadSettingsView(out var candidate)) return;
+        if (!ConnectWisePlatformClient.IsConfigured(candidate))
+        {
+            SetSettingsStatus("Enter the Platform API URL, OAuth Client ID, Client Secret, and scopes first.", "error");
+            return;
+        }
+        SetBusyAction(SettingsLoadPlatformBoardsButton, "Loading service boards and sources...");
+        SetSettingsStatus("Loading service boards and sources from ConnectWise Platform...", "neutral");
+        try
+        {
+            using var client = new ConnectWisePlatformClient(candidate);
+            var boards = await client.GetServiceBoardsAsync();
+            var sources = await client.GetSourcesAsync();
+            var boardId = (SettingsCwPlatformBoardBox.SelectedItem as ConnectWisePlatformClient.PlatformLookup)?.Id ?? candidate.ConnectWisePlatformBoardId;
+            var sourceId = (SettingsCwPlatformSourceBox.SelectedItem as ConnectWisePlatformClient.PlatformLookup)?.Id
+                ?? (ConnectWisePlatformClient.IsPlatformId(candidate.ConnectWisePlatformSourceId) ? candidate.ConnectWisePlatformSourceId
+                    : sources.FirstOrDefault(source => source.Name.Contains("phone", StringComparison.OrdinalIgnoreCase))?.Id ?? "");
+            SetPlatformLookupChoices(SettingsCwPlatformBoardBox, boards, boardId, candidate.ConnectWisePlatformBoardName);
+            SetPlatformLookupChoices(SettingsCwPlatformSourceBox, sources, sourceId, candidate.ConnectWisePlatformSourceName);
+            SetSettingsStatus($"Loaded {boards.Count} service boards and {sources.Count} sources. Choose the defaults, then save.", "success");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidDataException or System.Text.Json.JsonException or ArgumentException)
+        {
+            SetSettingsStatus($"Boards couldn't be loaded: {ex.Message}", "error");
+        }
+        finally { RestoreAction(SettingsLoadPlatformBoardsButton, "Load service boards and sources from ConnectWise Platform"); }
+    }
+
     private async Task TestSettingsPlatformAsync()
     {
         if (!TryReadSettingsView(out var candidate)) return;
@@ -1866,6 +1944,11 @@ public partial class MainWindow : Window
         ConnectWisePrivateKeyProtected = settings.ConnectWisePrivateKeyProtected,
         ConnectWiseClientId = settings.ConnectWiseClientId,
         ConnectWiseBoardId = settings.ConnectWiseBoardId,
+        ConnectWiseTicketingMode = settings.ConnectWiseTicketingMode,
+        ConnectWisePlatformBoardId = settings.ConnectWisePlatformBoardId,
+        ConnectWisePlatformBoardName = settings.ConnectWisePlatformBoardName,
+        ConnectWisePlatformSourceId = settings.ConnectWisePlatformSourceId,
+        ConnectWisePlatformSourceName = settings.ConnectWisePlatformSourceName,
         ConnectWiseMemberIdentifier = settings.ConnectWiseMemberIdentifier,
         AdminPinHash = settings.AdminPinHash,
         AdminPinSalt = settings.AdminPinSalt,
@@ -2292,19 +2375,17 @@ public partial class MainWindow : Window
 
     private async Task SyncConnectWiseAsync()
     {
-        if (!ConnectWiseClient.IsConfigured(_settings))
+        if (!ConnectWiseTicketing.IsConfigured(_settings))
         {
-            ShowWarning("Configure ConnectWise Site, Company ID, API keys, and Client ID in Settings first.");
+            ShowWarning("Connect ConnectWise in Settings first.");
             ShowSettings(); return;
         }
         try
         {
             SetBusyAction(SyncConnectWiseButton, "Syncing ConnectWise contacts...");
             var progress = new Progress<string>(message => ShowInlineStatus(message));
-            using var client = new ConnectWiseClient(_settings);
-            var test = await client.TestAsync();
-            if (!test.Success) throw new HttpRequestException(test.Message);
-            var contacts = await client.DownloadContactsAsync(progress);
+            using var client = new ConnectWiseTicketing(_settings);
+            var contacts = await client.DownloadDirectoryAsync(progress);
             var records = contacts.Select(contact => new { companyId = contact.CompanyId, companyName = contact.CompanyName, contactId = contact.ContactId, contactName = contact.ContactName, phones = contact.Phones }).ToList();
             var json = JsonSerializer.Serialize(new { records }, JsonOptions());
             using var request = new HttpRequestMessage(HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}/integrations/connectwise/directory") { Content = new StringContent(json, Encoding.UTF8, "application/json") };
@@ -2332,15 +2413,19 @@ public partial class MainWindow : Window
     private void OpenSelectedCompany()
     {
         if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CompanyId)) { ShowWarning("Select a synchronized ConnectWise contact first."); return; }
-        if (!ConnectWiseClient.IsConfigured(_settings)) { ShowWarning("Configure ConnectWise in Settings first."); return; }
-        try { using var client = new ConnectWiseClient(_settings); Process.Start(new ProcessStartInfo(client.CompanyUrl(row.CompanyId)) { UseShellExecute = true }); }
+        if (!ConnectWiseTicketing.IsConfigured(_settings)) { ShowWarning("Configure ConnectWise in Settings first."); return; }
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            if (client.CompanyUrl(row.CompanyId) is not { } url) { ShowWarning($"Open {row.Company} in ConnectWise. The platform API doesn't provide a direct link."); return; }
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
         catch (Exception ex) { ShowWarning($"Could not open company: {ex.Message}"); }
     }
 
     private async Task CreateTicketForSelectedContactAsync()
     {
-        if (!ConnectWiseClient.IsConfigured(_settings)) { ShowWarning("Connect ConnectWise PSA in Settings first."); return; }
-        if (_settings.ConnectWiseBoardId <= 0) { ShowWarning("Ask your admin to set a default service board ID in Settings > ConnectWise."); return; }
+        if (ConnectWiseTicketing.TicketCreationProblem(_settings) is { } problem) { ShowWarning(problem); return; }
         var row = RowsList.SelectedItem as RowItem;
         var isPlaceholder = row is null || row.Title is "No live data" or "Loading...";
         var company = isPlaceholder ? "" : row!.Company;
@@ -2350,11 +2435,10 @@ public partial class MainWindow : Window
         if (editor.ShowDialog() != true) return;
         try
         {
-            using var client = new ConnectWiseClient(_settings);
-            var ticket = await client.CreateTicketAsync(editor.CompanyId, _settings.ConnectWiseBoardId, editor.Summary, editor.Description);
-            var ticketId = Value(ticket, "id");
-            ShowInlineStatus($"ConnectWise ticket {ticketId} was created for {(string.IsNullOrWhiteSpace(editor.CompanyName) ? "the selected company" : editor.CompanyName)}.");
-            if (!string.IsNullOrWhiteSpace(ticketId)) Process.Start(new ProcessStartInfo(client.TicketUrl(ticketId)) { UseShellExecute = true });
+            using var client = new ConnectWiseTicketing(_settings);
+            var ticket = await client.CreateTicketAsync(editor.CompanyId, editor.CompanyName, editor.Summary, editor.Description);
+            ShowInlineStatus($"ConnectWise ticket #{ticket.DisplayNumber} was created for {(string.IsNullOrWhiteSpace(editor.CompanyName) ? "the selected company" : editor.CompanyName)}.");
+            if (client.TicketUrl(ticket.Id) is { } url) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch (Exception ex) { ShowWarning($"Ticket creation failed: {ex.Message}"); }
     }
@@ -3844,6 +3928,11 @@ public sealed class AppSettings
     public string ConnectWisePrivateKeyProtected { get; set; } = "";
     public string ConnectWiseClientId { get; set; } = "";
     public int ConnectWiseBoardId { get; set; }
+    public string ConnectWiseTicketingMode { get; set; } = CallBridge.Desktop.ConnectWiseTicketingMode.Psa;
+    public string ConnectWisePlatformBoardId { get; set; } = "";
+    public string ConnectWisePlatformBoardName { get; set; } = "";
+    public string ConnectWisePlatformSourceId { get; set; } = "";
+    public string ConnectWisePlatformSourceName { get; set; } = "";
     public string AdminPinHash { get; set; } = "";
     public string AdminPinSalt { get; set; } = "";
     public string BrandAccentColor { get; set; } = "";
@@ -3858,7 +3947,7 @@ public sealed class AppSettings
     [JsonIgnore]
     public string ConnectWisePlatformClientSecret { get; set; } = "";
     public string ConnectWisePlatformClientSecretProtected { get; set; } = "";
-    public string ConnectWisePlatformScopes { get; set; } = "platform.companies.read platform.tickets.create";
+    public string ConnectWisePlatformScopes { get; set; } = ConnectWisePlatformClient.TicketingScopes;
     [JsonIgnore]
     public string ConnectWisePlatformAccessToken { get; set; } = "";
     public string ConnectWisePlatformAccessTokenProtected { get; set; } = "";

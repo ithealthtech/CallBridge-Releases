@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.16.1",
+    [string]$Version = "0.17.0",
     [switch]$SkipPublish
 )
 

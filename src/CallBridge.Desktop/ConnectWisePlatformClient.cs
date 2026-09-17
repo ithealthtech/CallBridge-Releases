@@ -110,6 +110,185 @@ public sealed class ConnectWisePlatformClient : IDisposable
         return response;
     }
 
+    // ---- Ticketing (ConnectWise Platform Partner API: /api/platform/v2/service/ticketing, /api/platform/v1/company) ----
+
+    public const string TicketingScopes = "platform.tickets.read platform.tickets.create platform.tickets.update platform.companies.read";
+    private const string TicketsPath = "/api/platform/v2/service/ticketing/tickets";
+    private static readonly ConcurrentDictionary<string, (DateTimeOffset LoadedAt, List<PlatformCompany> Companies)> CompanyCache = new();
+
+    /// <summary>Company as returned by the platform, with the phone numbers usable for caller matching.</summary>
+    public sealed record PlatformCompany(string Id, string Name, string ContactId, string ContactName, string[] Phones, string[] ExternalIds);
+
+    public sealed record PlatformLookup(string Id, string Name);
+
+    public static bool IsPlatformId(string? value) => Guid.TryParse(value, out var id) && id != Guid.Empty;
+
+    public async Task<List<PlatformCompany>> GetCompaniesAsync(bool refresh = false, CancellationToken cancellationToken = default)
+    {
+        if (!refresh && CompanyCache.TryGetValue(_cacheKey, out var cached) && cached.LoadedAt > DateTimeOffset.UtcNow.AddMinutes(-15))
+            return cached.Companies;
+        using var document = await GetJsonAsync("/api/platform/v1/company/companies", cancellationToken);
+        var companies = new List<PlatformCompany>();
+        foreach (var company in Items(document.RootElement))
+        {
+            var id = StringProperty(company, "id");
+            var name = FirstNonEmpty(StringProperty(company, "friendlyName"), StringProperty(company, "name"));
+            if (!IsPlatformId(id) || string.IsNullOrWhiteSpace(name)) continue;
+            if (company.TryGetProperty("inactiveDate", out var inactive) && inactive.ValueKind == JsonValueKind.String
+                && DateTimeOffset.TryParse(inactive.GetString(), out var inactiveAt) && inactiveAt <= DateTimeOffset.UtcNow) continue;
+            var phones = new List<string>();
+            var contactId = "";
+            var contactName = "";
+            if (company.TryGetProperty("primaryContact", out var contact) && contact.ValueKind == JsonValueKind.Object)
+            {
+                contactId = StringProperty(contact, "id");
+                contactName = $"{StringProperty(contact, "firstName")} {StringProperty(contact, "lastName")}".Trim();
+                AddPhone(phones, contact, "primaryPhoneNumber");
+            }
+            if (company.TryGetProperty("primarySite", out var site) && site.ValueKind == JsonValueKind.Object)
+                AddPhone(phones, site, "primaryPhoneNumber");
+            var externalIds = company.TryGetProperty("externalIds", out var ext) && ext.ValueKind == JsonValueKind.Array
+                ? ext.EnumerateArray().Select(item => StringProperty(item, "externalId")).Where(value => value.Length > 0).ToArray()
+                : [];
+            companies.Add(new(id, name, contactId, contactName, phones.Distinct(StringComparer.Ordinal).ToArray(), externalIds));
+        }
+        CompanyCache[_cacheKey] = (DateTimeOffset.UtcNow, companies);
+        return companies;
+    }
+
+    /// <summary>Resolves a company reference that may be a platform UUID or a PSA numeric company ID (via external ID mapping or exact name).</summary>
+    public async Task<PlatformCompany?> ResolveCompanyAsync(string companyId, string? companyName, CancellationToken cancellationToken = default)
+    {
+        var companies = await GetCompaniesAsync(false, cancellationToken);
+        if (IsPlatformId(companyId)) return companies.FirstOrDefault(c => string.Equals(c.Id, companyId, StringComparison.OrdinalIgnoreCase));
+        var byExternal = companies.Where(c => c.ExternalIds.Contains(companyId, StringComparer.Ordinal)).ToList();
+        if (byExternal.Count == 1) return byExternal[0];
+        if (string.IsNullOrWhiteSpace(companyName)) return null;
+        var byName = companies.Where(c => string.Equals(c.Name, companyName.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        return byName.Count == 1 ? byName[0] : null;
+    }
+
+    public async Task<List<PlatformLookup>> GetServiceBoardsAsync(CancellationToken cancellationToken = default) => await GetLookupsAsync("/api/platform/v1/service/ticketing/service-boards", cancellationToken);
+    public async Task<List<PlatformLookup>> GetSourcesAsync(CancellationToken cancellationToken = default) => await GetLookupsAsync("/api/platform/v1/service/ticketing/sources", cancellationToken);
+
+    public async Task<List<ConnectWiseTicketSummary>> GetOpenTicketsAsync(string platformCompanyId, int maximum = 5, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(platformCompanyId)) throw new ArgumentException("ConnectWise Platform company ID must be a UUID.", nameof(platformCompanyId));
+        var closed = new List<string>();
+        using (var statuses = await GetJsonAsync("/api/platform/v1/service/ticketing/statuses", cancellationToken))
+            foreach (var status in Items(statuses.RootElement))
+                if (string.Equals(StringProperty(status, "category"), "Closed", StringComparison.OrdinalIgnoreCase) && IsPlatformId(StringProperty(status, "id")))
+                    closed.Add(StringProperty(status, "id"));
+        var query = $"companyIds={Uri.EscapeDataString(platformCompanyId)}&pageSize={Math.Clamp(maximum, 1, 25)}&pageNum=1&sortBy=createdAt&sortDir=desc";
+        if (closed.Count > 0) query += "&statusIds=" + Uri.EscapeDataString("[notIn]," + string.Join(',', closed));
+        using var document = await GetJsonAsync($"{TicketsPath}?{query}", cancellationToken);
+        var root = document.RootElement;
+        var list = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("tickets", out var ticketsNode) ? ticketsNode : root;
+        var tickets = new List<ConnectWiseTicketSummary>();
+        foreach (var ticket in Items(list))
+        {
+            var id = StringProperty(ticket, "id");
+            if (!IsPlatformId(id)) continue;
+            var statusCategory = ticket.TryGetProperty("status", out var s) ? StringProperty(s, "name") : "";
+            tickets.Add(new(id, StringProperty(ticket, "summary"),
+                ticket.TryGetProperty("priority", out var p) ? StringProperty(p, "name") : "",
+                statusCategory,
+                NullIfEmpty(StringProperty(ticket, "number"))));
+        }
+        return tickets;
+    }
+
+    public async Task<ConnectWiseTicketSummary> CreateTicketAsync(string platformCompanyId, string serviceBoardId, string sourceId, string summary, string description, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(platformCompanyId)) throw new ArgumentException("Choose a ConnectWise company for the ticket.", nameof(platformCompanyId));
+        if (!IsPlatformId(serviceBoardId) || !IsPlatformId(sourceId))
+            throw new ArgumentException("Ask your admin to choose a default service board and source in Settings > ConnectWise.");
+        var payload = new
+        {
+            summary = Clip(summary, 255),
+            description = Clip(string.IsNullOrWhiteSpace(description) ? summary : description, 10000),
+            serviceBoard = new { id = serviceBoardId },
+            source = new { id = sourceId },
+            company = new { id = platformCompanyId }
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Post, TicketsPath) { Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json") };
+        using var response = await SendAsync(request, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(ApiError(response, content));
+        using var document = JsonDocument.Parse(content);
+        var id = StringProperty(document.RootElement, "id");
+        if (!IsPlatformId(id)) throw new InvalidDataException("ConnectWise Platform didn't return the new ticket's ID.");
+        return new(id, payload.summary, "", "New", NullIfEmpty(StringProperty(document.RootElement, "number")));
+    }
+
+    /// <summary>Adds a note visible only to the partner (internal).</summary>
+    public async Task AddTicketNoteAsync(string ticketId, string text, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(ticketId)) throw new ArgumentException("ConnectWise Platform ticket ID must be a UUID.", nameof(ticketId));
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Note text is required.", nameof(text));
+        var payload = new { detail = Clip(text.Trim(), 12000), visibility = 2 };
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/platform/v1/service/ticketing/tickets/{Uri.EscapeDataString(ticketId)}/notes")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        using var response = await SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(ApiError(response, await response.Content.ReadAsStringAsync(cancellationToken)));
+    }
+
+    /// <summary>The platform API has no time entries, so confirmed call time is recorded as an internal note.</summary>
+    public static string TimeNoteText(string memberIdentifier, DateTimeOffset start, DateTimeOffset end, string notes)
+    {
+        var minutes = Math.Max(1, (int)Math.Round((end - start).TotalMinutes));
+        var who = string.IsNullOrWhiteSpace(memberIdentifier) ? "" : $" by {memberIdentifier.Trim()}";
+        var body = string.IsNullOrWhiteSpace(notes) ? "" : $"\n{notes.Trim()}";
+        return $"Phone call time{who}: {minutes} min ({start.ToLocalTime():MMM d, h:mm tt} – {end.ToLocalTime():h:mm tt}).{body}";
+    }
+
+    private async Task<List<PlatformLookup>> GetLookupsAsync(string path, CancellationToken cancellationToken)
+    {
+        using var document = await GetJsonAsync(path, cancellationToken);
+        return Items(document.RootElement)
+            .Where(item => !(item.TryGetProperty("inactiveFlag", out var inactive) && inactive.ValueKind == JsonValueKind.True))
+            .Select(item => new PlatformLookup(StringProperty(item, "id"), StringProperty(item, "name")))
+            .Where(item => IsPlatformId(item.Id) && item.Name.Length > 0)
+            .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<JsonDocument> GetJsonAsync(string path, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        using var response = await SendAsync(request, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(ApiError(response, content));
+        return JsonDocument.Parse(content);
+    }
+
+    /// <summary>Returns the items of an array response, or of the first array property when the response wraps it.</summary>
+    internal static IEnumerable<JsonElement> Items(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Array) return root.EnumerateArray().ToList();
+        if (root.ValueKind == JsonValueKind.Object)
+            foreach (var property in root.EnumerateObject())
+                if (property.Value.ValueKind == JsonValueKind.Array) return property.Value.EnumerateArray().ToList();
+        return [];
+    }
+
+    private static void AddPhone(List<string> phones, JsonElement owner, string property)
+    {
+        if (!owner.TryGetProperty(property, out var phone) || phone.ValueKind != JsonValueKind.Object) return;
+        if (phone.TryGetProperty("activeFlag", out var active) && active.ValueKind == JsonValueKind.False) return;
+        var national = StringProperty(phone, "nationalNumber");
+        if (string.IsNullOrWhiteSpace(national)) return;
+        var country = StringProperty(phone, "countryCode").TrimStart('+');
+        phones.Add(string.IsNullOrWhiteSpace(country) ? national : $"+{country}{national}");
+    }
+
+    private static string ApiError(HttpResponseMessage response, string content) =>
+        $"ConnectWise Platform returned HTTP {(int)response.StatusCode} {response.ReasonPhrase}. {SafeDetail(content)}".Trim();
+    private static string FirstNonEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+    private static string? NullIfEmpty(string value) => string.IsNullOrWhiteSpace(value) ? null : value;
+    private static string Clip(string value, int max) { var text = (value ?? "").Trim(); return text.Length <= max ? text : text[..max]; }
     private async Task<TokenEntry> GetTokenAsync(CancellationToken cancellationToken)
     {
         if (TokenCache.TryGetValue(_cacheKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(1)) return cached;

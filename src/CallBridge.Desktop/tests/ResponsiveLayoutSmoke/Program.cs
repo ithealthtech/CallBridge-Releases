@@ -97,6 +97,7 @@ internal static class Program
             VerifyEmbeddedSettingsPage(window);
             VerifyTimeEntryQueue(window);
             VerifyUpdateIndicators(window);
+        VerifyConnectWiseModeSettings(window);
         var brandedPath = VerifyBranding(window);
             var settingsPreviewPath = CaptureSettingsPreview(window);
             var homePreviewPath = CaptureHomePreview(window);
@@ -822,8 +823,8 @@ internal static class Program
         var show = typeof(MainWindow).GetMethod("ShowNextTimeEntryDraft", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var hide = typeof(MainWindow).GetMethod("HideTimeEntryDraft", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var start = DateTimeOffset.UtcNow.AddMinutes(-20);
-        queue.Add(Activator.CreateInstance(entryType, "48213", start, start.AddMinutes(12), "First call")!);
-        queue.Add(Activator.CreateInstance(entryType, "48190", start.AddMinutes(13), start.AddMinutes(16), "Second call")!);
+        queue.Add(Activator.CreateInstance(entryType, "48213", "48213", start, start.AddMinutes(12), "First call")!);
+        queue.Add(Activator.CreateInstance(entryType, "48190", "48190", start.AddMinutes(13), start.AddMinutes(16), "Second call")!);
         show.Invoke(window, null);
         var target = Element(window, "TimeEntryTargetText") as TextBlock ?? throw new InvalidOperationException("Missing time entry target.");
         if (!target.Text.Contains("#48213", StringComparison.Ordinal) || !target.Text.Contains("1 more", StringComparison.Ordinal))
@@ -1070,6 +1071,27 @@ internal static class Program
     private const int PreviewWidth = 880;
     private const int PreviewHeight = 680;
 
+    private static void VerifyConnectWiseModeSettings(MainWindow window)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(MainWindow).GetMethod("ShowSettings", flags, Type.EmptyTypes)?.Invoke(window, null);
+        typeof(MainWindow).GetMethod("ShowSettingsSection", flags)!.Invoke(window, ["ConnectWise"]);
+        if (window.FindName("SettingsConnectWiseSection") is not FrameworkElement section || section.Visibility != Visibility.Visible)
+        {
+            // Admin sections can be PIN-locked in some fixtures; nothing to render then.
+            return;
+        }
+        var mode = window.FindName("SettingsCwModeBox") as ComboBox ?? throw new InvalidOperationException("Missing ticketing connection choice.");
+        if (mode.Items.Count != 3) throw new InvalidOperationException("Ticketing connection should offer PSA, Platform, and Platform with PSA.");
+        mode.SelectedValue = ConnectWiseTicketingMode.Platform;
+        if (window.FindName("SettingsCwModeHelpText") is not TextBlock help || !help.Text.Contains("Platform", StringComparison.Ordinal))
+            throw new InvalidOperationException("Choosing Platform should explain what it uses.");
+        AssertVisible(window, "SettingsCwPlatformBoardBox", "platform service board choice");
+        AssertVisible(window, "SettingsCwPlatformSourceBox", "platform ticket source choice");
+        RenderWindowPreview(window, "callbridge-connectwise-mode.png");
+        mode.SelectedValue = ConnectWiseTicketingMode.Psa;
+        typeof(MainWindow).GetMethod("ShowSettingsSection", flags)!.Invoke(window, ["Audio"]);
+    }
     private static void VerifyUpdateIndicators(MainWindow window)
     {
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;

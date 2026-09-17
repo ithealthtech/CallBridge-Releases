@@ -8,7 +8,11 @@ namespace CallBridge.Desktop;
 
 public sealed record ConnectWiseResult(bool Success, string Message);
 public sealed record ConnectWiseContactRecord(string CompanyId, string CompanyName, string ContactId, string ContactName, string[] Phones);
-public sealed record ConnectWiseTicketSummary(string Id, string Summary, string Priority, string Status);
+public sealed record ConnectWiseTicketSummary(string Id, string Summary, string Priority, string Status, string? Number = null)
+{
+    /// <summary>Human-readable ticket number: the PSA ID, or the platform ticket number (platform IDs are UUIDs).</summary>
+    public string DisplayNumber => Number ?? Id;
+}
 public sealed record ConnectWiseCompanySummary(string Id, string Name)
 {
     public override string ToString() => Name;
@@ -135,7 +139,7 @@ public sealed class ConnectWiseClient : IDisposable
             .ToList();
     }
 
-    public static bool IsCompanyId(string? companyId) => long.TryParse(companyId, out var id) && id > 0;
+    public static bool IsCompanyId(string? companyId) => (long.TryParse(companyId, out var id) && id > 0) || ConnectWisePlatformClient.IsPlatformId(companyId);
 
     /// <summary>Adds an internal-analysis note to a service ticket.</summary>
     public async Task AddTicketNoteAsync(string ticketId, string text, CancellationToken cancellationToken = default)
