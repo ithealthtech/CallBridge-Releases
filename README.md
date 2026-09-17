@@ -131,6 +131,10 @@ Platform API limits, per ConnectWise's published API: there are no time entries 
 
 When a call ends, the notes panel stays open in wrap-up: the tech can still choose a ticket, type more notes, create a ticket, and save. Saving clears the box so each save adds a separate note. Wrap-up closes on **Done** or when the next call starts; unsaved notes with no ticket are copied to the clipboard at that point.
 
+## Notes on older calls
+
+Recent calls and contacts linked to a ConnectWise company carry an **Add note** row action. It loads that company's open tickets, writes an internal note on the chosen one, and can hand off to New ticket when the company has none open. The older **Call notes** action still edits CallBridge's own call log.
+
 ## End-user documentation
 
 The technician and admin quick start guide is published at <https://ithealthtech.github.io/CallBridge-Releases/> from the public [CallBridge-Releases](https://github.com/ithealthtech/CallBridge-Releases) repository (`pages/` and `docs/quick-start.md`). Update it there when settings or features change.

@@ -4,7 +4,7 @@ param(
     [string]$Configuration = "Release",
     [ValidatePattern('^win-(x64|arm64)$')]
     [string]$Runtime = "win-x64",
-    [string]$Version = "0.18.0"
+    [string]$Version = "0.18.1"
 )
 
 $ErrorActionPreference = "Stop"

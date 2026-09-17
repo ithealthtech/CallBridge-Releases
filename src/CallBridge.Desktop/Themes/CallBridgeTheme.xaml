@@ -483,7 +483,16 @@
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Tag="Notes" Content="Notes" AutomationProperties.Name="Edit notes for this call" ToolTip="Edit notes for this call">
+                <Button Tag="TicketNote" Content="Add note" AutomationProperties.Name="Add a note to a ConnectWise ticket" ToolTip="Add a note to one of this company's ConnectWise tickets">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource RowActionButton}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CompanyId}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button Tag="Notes" Content="Call notes" AutomationProperties.Name="Edit notes for this call" ToolTip="Edit notes for this call">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource RowActionButton}">
                             <Style.Triggers>

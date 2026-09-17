@@ -929,6 +929,7 @@ public partial class MainWindow : Window
             case "OpenCompany": OpenSelectedCompany(); break;
             case "NewTicket": await CreateTicketForSelectedContactAsync(); break;
             case "Notes": await EditSelectedCallNoteAsync(); break;
+            case "TicketNote": await AddTicketNoteForSelectedRowAsync(); break;
             case "Edit": await EditSelectedContactAsync(); break;
             case "Delete": await DeleteSelectedContactAsync(); break;
         }
@@ -3500,6 +3501,53 @@ public partial class MainWindow : Window
         return EmptyRows("Call history is temporarily unavailable. Restart CallBridge and try again.");
     }
 
+    /// <summary>
+    /// Adds a note to one of the row company's ConnectWise tickets, so a tech can write up a call after the
+    /// workspace has closed. Open tickets are loaded fresh, and a new ticket can be created from the dialog.
+    /// </summary>
+    private async Task AddTicketNoteForSelectedRowAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CompanyId))
+        {
+            ShowWarning("Select a call or contact that's linked to a ConnectWise company.");
+            return;
+        }
+        if (!ConnectWiseTicketing.IsConfigured(_settings)) { ShowWarning("Connect ConnectWise in Settings first."); return; }
+
+        var company = string.IsNullOrWhiteSpace(row.Company) ? row.Title : row.Company;
+        List<ConnectWiseTicketSummary> tickets;
+        try
+        {
+            ShowInlineStatus($"Loading open tickets for {company}...");
+            using var client = new ConnectWiseTicketing(_settings);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            (tickets, _) = await client.GetOpenTicketsAsync(row.CompanyId, row.Company, 25, timeout.Token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException or InvalidOperationException)
+        {
+            ShowWarning($"Open tickets couldn't be loaded: {ex.Message}");
+            return;
+        }
+
+        var editor = new TicketNoteWindow(company, row.Title, tickets) { Owner = this };
+        if (editor.ShowDialog() != true) return;
+
+        if (editor.CreateNewTicket)
+        {
+            RowsList.SelectedItem = row;
+            await CreateTicketForSelectedContactAsync();
+            return;
+        }
+        if (editor.TicketId.Length == 0 || editor.Note.Length == 0) return;
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            await client.AddTicketNoteAsync(editor.TicketId, editor.Note);
+            ShowInlineStatus($"Note added to ticket #{editor.TicketNumber} for {company}.");
+        }
+        catch (Exception ex) { ShowWarning($"The note couldn't be saved: {ex.Message}"); }
+    }
+
     private async Task EditSelectedCallNoteAsync()
     {
         if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CallId)) { ShowWarning("Select a call first."); return; }
@@ -4263,8 +4311,69 @@ public sealed class PromptWindow : Window
     }
 }
 
+/// <summary>Picks one of a company's open ConnectWise tickets and writes an internal note on it.</summary>
+public sealed class TicketNoteWindow : Window
+{
+    private readonly ComboBox _tickets = new() { DisplayMemberPath = "Label" };
+    private readonly TextBox _note = new() { Padding = new Thickness(9), Height = 150, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
 
+    private sealed record TicketChoice(string Id, string Number, string Label);
 
+    public string TicketId => (_tickets.SelectedItem as TicketChoice)?.Id ?? "";
+    public string TicketNumber => (_tickets.SelectedItem as TicketChoice)?.Number ?? "";
+    public string Note => _note.Text.Trim();
+    public bool CreateNewTicket { get; private set; }
 
+    public TicketNoteWindow(string company, string caller, IReadOnlyList<ConnectWiseTicketSummary> tickets)
+    {
+        Title = "Add a ticket note"; Width = 560; Height = 430; MinWidth = 440; MinHeight = 360;
+        ResizeMode = ResizeMode.CanResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ThemeWindows.ApplyDialog(this);
 
+        foreach (var ticket in tickets)
+            _tickets.Items.Add(new TicketChoice(ticket.Id, ticket.DisplayNumber, $"#{ticket.DisplayNumber} - {ticket.Summary}"));
+        if (_tickets.Items.Count > 0) _tickets.SelectedIndex = 0;
 
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = string.IsNullOrWhiteSpace(company) ? "Add a ticket note" : $"Add a note for {company}", TextWrapping = TextWrapping.Wrap, FontSize = 22, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
+        stack.Children.Add(new TextBlock
+        {
+            Text = tickets.Count == 0
+                ? "This company has no open tickets. Create one instead, then add the note to it."
+                : $"The note is saved as an internal note, the same as notes taken during a call{(string.IsNullOrWhiteSpace(caller) ? "" : $" with {caller}")}.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ThemePalette.Brush("Muted"),
+            Margin = new Thickness(0, 0, 0, 14)
+        });
+        AddField(stack, "Ticket", _tickets);
+        AddField(stack, "Note", _note);
+
+        var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 9, 16, 9), Margin = new Thickness(0, 0, 10, 0) };
+        var newTicket = new Button { Content = "New ticket instead", Padding = new Thickness(16, 9, 16, 9), Margin = new Thickness(0, 0, 10, 0) };
+        var save = new Button { Content = "Save note", IsDefault = true, Padding = new Thickness(16, 9, 16, 9), Background = ThemePalette.Brush("Accent"), Foreground = Brushes.White };
+        newTicket.Click += (_, _) => { CreateNewTicket = true; DialogResult = true; };
+        save.Click += (_, _) =>
+        {
+            if (TicketId.Length == 0 || Note.Length == 0) return;
+            DialogResult = true;
+        };
+        _tickets.IsEnabled = tickets.Count > 0;
+        _note.IsEnabled = tickets.Count > 0;
+        save.IsEnabled = tickets.Count > 0;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(newTicket);
+        buttons.Children.Add(save);
+        foreach (var button in buttons.Children.OfType<Button>()) DialogControlMetadata.Apply(button);
+        stack.Children.Add(buttons);
+        Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Loaded += (_, _) => { if (tickets.Count > 0) _note.Focus(); else newTicket.Focus(); };
+    }
+
+    private static void AddField(Panel panel, string label, Control field)
+    {
+        panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, Foreground = ThemePalette.Brush("Muted"), Margin = new Thickness(0, 6, 0, 5) });
+        DialogControlMetadata.Apply(field, label);
+        panel.Children.Add(field);
+    }
+}

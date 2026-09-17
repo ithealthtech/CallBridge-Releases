@@ -639,7 +639,7 @@ internal static class Program
             ?? throw new InvalidOperationException("The contact row was not rendered.");
         var tags = FindVisualChildren<Button>(container).Where(button => button.Visibility == Visibility.Visible)
             .Select(button => button.Tag as string).Where(tag => tag is not null).ToList();
-        foreach (var expected in new[] { "Primary", "OpenCompany", "NewTicket", "Edit", "Delete" })
+        foreach (var expected in new[] { "Primary", "OpenCompany", "NewTicket", "TicketNote", "Edit", "Delete" })
             if (!tags.Contains(expected))
                 throw new InvalidOperationException($"A selected contact row should offer the {expected} action.");
         if (tags.Contains("Notes"))
@@ -655,7 +655,51 @@ internal static class Program
         var callTags = FindVisualChildren<Button>(callRow).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Tag as string).ToList();
         if (!callTags.Contains("Notes") || callTags.Contains("OpenCompany") || callTags.Contains("Edit"))
             throw new InvalidOperationException("Call rows should offer Notes but not company or contact actions when those are unknown.");
+        if (callTags.Contains("TicketNote"))
+            throw new InvalidOperationException("Rows with no ConnectWise company should not offer a ticket note.");
+
+        // A past call for a known company can still be written up: Add note loads that company's open tickets.
+        var companyCall = new RowItem("Dana Mercer", "(828) 555-0142 - Inbound - connected", "Call", "8285550142", Company: "Blue Ridge Dental", CompanyId: "101", CallId: "call-2");
+        ShowRows(window, "Recent calls", companyCall);
+        rowsList.SelectedItem = companyCall;
+        window.UpdateLayout();
+        DrainDispatcher(window.Dispatcher);
+        var companyRow = rowsList.ItemContainerGenerator.ContainerFromItem(companyCall) as ListBoxItem
+            ?? throw new InvalidOperationException("The company call row was not rendered.");
+        var companyTags = FindVisualChildren<Button>(companyRow).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Tag as string).ToList();
+        foreach (var expected in new[] { "TicketNote", "Notes", "OpenCompany" })
+            if (!companyTags.Contains(expected))
+                throw new InvalidOperationException($"A past call for a known company should offer the {expected} action.");
+
+        var noteDialog = new TicketNoteWindow("Blue Ridge Dental", "Dana Mercer",
+        [
+            new ConnectWiseTicketSummary("48213", "Front desk printer offline", "P2", "New"),
+            new ConnectWiseTicketSummary("48190", "New hire laptop", "P4", "In progress")
+        ]);
+        var dialogButtons = LogicalButtons(noteDialog).Select(button => button.Content as string).ToList();
+        foreach (var expected in new[] { "Save note", "New ticket instead", "Cancel" })
+            if (!dialogButtons.Contains(expected))
+                throw new InvalidOperationException($"The ticket note dialog should offer {expected}.");
+        if (noteDialog.TicketId != "48213" || noteDialog.TicketNumber != "48213")
+            throw new InvalidOperationException("The ticket note dialog should preselect the newest open ticket.");
+        var emptyDialog = new TicketNoteWindow("Blue Ridge Dental", "Dana Mercer", []);
+        if (emptyDialog.TicketId.Length != 0)
+            throw new InvalidOperationException("With no open tickets, no ticket should be selected.");
+        if (LogicalButtons(emptyDialog).First(button => Equals(button.Content, "Save note")).IsEnabled)
+            throw new InvalidOperationException("With no open tickets, Save note should be disabled.");
     }
+    /// <summary>Buttons in a dialog that was never shown: the visual tree isn't built yet, so walk the logical tree.</summary>
+    private static List<Button> LogicalButtons(DependencyObject root)
+    {
+        var found = new List<Button>();
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            if (child is Button button) found.Add(button);
+            found.AddRange(LogicalButtons(child));
+        }
+        return found;
+    }
+
     private static void VerifyBusyActionFeedback(MainWindow window)
     {
         var setBusy = typeof(MainWindow).GetMethod("SetBusyAction", BindingFlags.Static | BindingFlags.NonPublic)
