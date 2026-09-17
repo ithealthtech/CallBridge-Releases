@@ -29,7 +29,8 @@ public sealed class ConnectWiseClient : IDisposable
         _siteBase = NormalizeSite(settings.ConnectWiseSite);
         _apiBase = $"{_siteBase}/v4_6_release/apis/3.0";
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
-        _http.Timeout = TimeSpan.FromSeconds(30);
+        // Per-request limits below: reads stay quick, but PSA runs board workflows and notifications while creating a ticket.
+        _http.Timeout = Timeout.InfiniteTimeSpan;
         var identity = $"{settings.ConnectWiseCompanyId}+{settings.ConnectWisePublicKey}:{settings.ConnectWisePrivateKey}";
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(identity)));
         _http.DefaultRequestHeaders.Add("clientId", settings.ConnectWiseClientId);
@@ -47,7 +48,8 @@ public sealed class ConnectWiseClient : IDisposable
     {
         try
         {
-            using var response = await _http.GetAsync($"{_apiBase}/company/companies?pageSize=1&fields=id,name");
+            using var timeout = new CancellationTokenSource(ReadTimeout);
+            using var response = await _http.GetAsync($"{_apiBase}/company/companies?pageSize=1&fields=id,name", timeout.Token);
             if (response.IsSuccessStatusCode) return new(true, "ConnectWise PSA authentication succeeded.");
             return new(false, await ErrorAsync(response));
         }
@@ -61,9 +63,10 @@ public sealed class ConnectWiseClient : IDisposable
         for (var page = 1; page <= 100; page++)
         {
             progress?.Report($"Downloading ConnectWise contacts, page {page}...");
-            using var response = await _http.GetAsync($"{_apiBase}/company/contacts?conditions=inactiveFlag=false&pageSize={pageSize}&page={page}");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            using var response = await _http.GetAsync($"{_apiBase}/company/contacts?conditions=inactiveFlag=false&pageSize={pageSize}&page={page}", timeout.Token);
             if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
-            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
             if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected contacts response.");
             var count = 0;
             foreach (var contact in document.RootElement.EnumerateArray())
@@ -87,16 +90,54 @@ public sealed class ConnectWiseClient : IDisposable
         return contacts;
     }
 
+    public static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(30);
+    public static TimeSpan CreateTicketTimeout { get; set; } = TimeSpan.FromMinutes(2);
+
     public async Task<JsonElement> CreateTicketAsync(string companyId, int boardId, string summary, string description)
     {
         if (!long.TryParse(companyId, out var numericCompanyId) || numericCompanyId <= 0)
             throw new ArgumentException("Choose a ConnectWise company for the ticket.", nameof(companyId));
         if (boardId <= 0) throw new ArgumentException("A default service board ID is required.", nameof(boardId));
         var payload = new { summary, company = new { id = numericCompanyId }, board = new { id = boardId }, initialDescription = description };
-        using var response = await _http.PostAsync($"{_apiBase}/service/tickets", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"));
-        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return document.RootElement.Clone();
+        var startedAt = DateTimeOffset.UtcNow;
+        try
+        {
+            using var timeout = new CancellationTokenSource(CreateTicketTimeout);
+            using var response = await _http.PostAsync($"{_apiBase}/service/tickets", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+            return document.RootElement.Clone();
+        }
+        catch (Exception ex) when (ex is TaskCanceledException or HttpRequestException { StatusCode: null })
+        {
+            // A slow or dropped response doesn't mean PSA didn't create the ticket. Look for it before reporting
+            // a failure, so a retry doesn't create a duplicate.
+            if (await FindRecentTicketAsync(numericCompanyId, boardId, summary, startedAt) is { } existing) return existing;
+            throw new TimeoutException("ConnectWise didn't confirm the ticket in time, and it wasn't found afterwards. Check ConnectWise before trying again.", ex);
+        }
+    }
+
+    internal async Task<JsonElement?> FindRecentTicketAsync(long companyId, int boardId, string summary, DateTimeOffset since)
+    {
+        var escaped = summary.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var conditions = Uri.EscapeDataString($"company/id={companyId} and board/id={boardId} and summary=\"{escaped}\" and dateEntered>=[{since.AddMinutes(-2).UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}]");
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                using var timeout = new CancellationTokenSource(ReadTimeout);
+                using var response = await _http.GetAsync($"{_apiBase}/service/tickets?conditions={conditions}&orderBy=id%20desc&pageSize=1&fields=id,summary", timeout.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+                    if (document.RootElement.ValueKind == JsonValueKind.Array && document.RootElement.GetArrayLength() > 0)
+                        return document.RootElement[0].Clone();
+                }
+            }
+            catch (Exception ex) when (ex is TaskCanceledException or HttpRequestException or JsonException) { }
+            await Task.Delay(TimeSpan.FromSeconds(5));
+        }
+        return null;
     }
 
     public async Task<List<ConnectWiseTicketSummary>> GetOpenTicketsAsync(string companyId, int maximum = 5, CancellationToken cancellationToken = default)
@@ -106,7 +147,9 @@ public sealed class ConnectWiseClient : IDisposable
         var pageSize = Math.Clamp(maximum, 1, 25);
         var conditions = Uri.EscapeDataString($"company/id={numericCompanyId} and closedFlag=false");
         var url = $"{_apiBase}/service/tickets?conditions={conditions}&orderBy=id%20desc&pageSize={pageSize}&fields=id,summary,priority/name,status/name";
-        using var response = await _http.GetAsync(url, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ReadTimeout);
+        using var response = await _http.GetAsync(url, timeout.Token);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected tickets response.");
@@ -129,7 +172,9 @@ public sealed class ConnectWiseClient : IDisposable
         if (text.Length is 0 or > 100) throw new ArgumentException("Enter 1 to 100 characters to search companies.", nameof(query));
         var conditions = Uri.EscapeDataString($"name like \"{text}*\" and deletedFlag=false");
         var url = $"{_apiBase}/company/companies?conditions={conditions}&orderBy=name%20asc&pageSize={Math.Clamp(maximum, 1, 25)}&fields=id,name";
-        using var response = await _http.GetAsync(url, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ReadTimeout);
+        using var response = await _http.GetAsync(url, timeout.Token);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected companies response.");
@@ -148,7 +193,9 @@ public sealed class ConnectWiseClient : IDisposable
             throw new ArgumentException("ConnectWise ticket ID must be numeric.", nameof(ticketId));
         if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Note text is required.", nameof(text));
         var payload = new { text = text.Trim(), detailDescriptionFlag = false, internalAnalysisFlag = true, resolutionFlag = false };
-        using var response = await _http.PostAsync($"{_apiBase}/service/tickets/{numericTicketId}/notes", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await _http.PostAsync($"{_apiBase}/service/tickets/{numericTicketId}/notes", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
     }
 
@@ -170,7 +217,9 @@ public sealed class ConnectWiseClient : IDisposable
             timeEnd = end.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
             notes = string.IsNullOrWhiteSpace(notes) ? "Phone call" : notes.Trim()
         };
-        using var response = await _http.PostAsync($"{_apiBase}/time/entries", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await _http.PostAsync($"{_apiBase}/time/entries", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
     }
 

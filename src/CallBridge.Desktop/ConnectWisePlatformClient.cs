@@ -38,7 +38,7 @@ public sealed class ConnectWisePlatformClient : IDisposable
         _clientSecret = settings.ConnectWisePlatformClientSecret;
         _scope = NormalizeScopes(settings.ConnectWisePlatformScopes);
         _http = handler is null ? new HttpClient() : new HttpClient(handler);
-        _http.Timeout = TimeSpan.FromSeconds(30);
+        _http.Timeout = TimeSpan.FromMinutes(2);
         _cacheKey = $"{_baseUrl}|{_clientId}|{_scope}|{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(_clientSecret)))}";
         if (!string.IsNullOrWhiteSpace(settings.ConnectWisePlatformAccessToken)
             && settings.ConnectWisePlatformAccessTokenExpiresAt is { } storedExpiry

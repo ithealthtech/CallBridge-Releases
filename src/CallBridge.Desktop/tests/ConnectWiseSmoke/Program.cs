@@ -147,6 +147,17 @@ catch (ArgumentException)
 {
 }
 
+// ---- Slow PSA ticket creation: the ticket was created but the response timed out
+ConnectWiseClient.CreateTicketTimeout = TimeSpan.FromMilliseconds(300);
+var slowHandler = new SlowCreateHandler();
+using (var slowClient = new ConnectWiseClient(settings, slowHandler))
+{
+    var recovered = await slowClient.CreateTicketAsync("101", 27, "Phone support - Acme", "Caller needs help.");
+    Assert(recovered.GetProperty("id").GetInt32() == 9100, "A timed-out create should return the ticket PSA actually created.");
+    Assert(slowHandler.CreateAttempts == 1, "A timed-out create must not be retried automatically.");
+    Assert(slowHandler.SawLookup, "The duplicate check should look for the same company, board, and summary.");
+}
+ConnectWiseClient.CreateTicketTimeout = TimeSpan.FromMinutes(2);
 // ---- Platform ticketing
 const string companyUuid = "11111111-1111-1111-1111-111111111111";
 const string ticketUuid = "22222222-2222-2222-2222-222222222222";
@@ -395,4 +406,23 @@ sealed class FakePlatformTicketingHandler : HttpMessageHandler
 
     private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+}
+
+sealed class SlowCreateHandler : HttpMessageHandler
+{
+    public int CreateAttempts { get; private set; }
+    public bool SawLookup { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/service/tickets"))
+        {
+            CreateAttempts++;
+            await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+        var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+        SawLookup = query.Contains("company/id=101") && query.Contains("board/id=27") && query.Contains("summary=\"Phone support - Acme\"") && query.Contains("dateEntered>=[");
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""[{"id":9100,"summary":"Phone support - Acme"}]""", Encoding.UTF8, "application/json") };
+    }
 }

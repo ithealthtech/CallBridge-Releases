@@ -734,6 +734,7 @@ public partial class MainWindow : Window
         if (editor.ShowDialog() != true) return;
         try
         {
+            CallNoteStatusText.Text = "Creating the ticket in ConnectWise. This can take up to a couple of minutes...";
             using var client = new ConnectWiseTicketing(_settings);
             var summary = await client.CreateTicketAsync(editor.CompanyId, editor.CompanyName, editor.Summary, editor.Description);
             var ticketId = summary.Id;
@@ -2435,6 +2436,7 @@ public partial class MainWindow : Window
         if (editor.ShowDialog() != true) return;
         try
         {
+            ShowInlineStatus("Creating the ticket in ConnectWise. This can take up to a couple of minutes...");
             using var client = new ConnectWiseTicketing(_settings);
             var ticket = await client.CreateTicketAsync(editor.CompanyId, editor.CompanyName, editor.Summary, editor.Description);
             ShowInlineStatus($"ConnectWise ticket #{ticket.DisplayNumber} was created for {(string.IsNullOrWhiteSpace(editor.CompanyName) ? "the selected company" : editor.CompanyName)}.");
