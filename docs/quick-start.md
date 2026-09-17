@@ -18,6 +18,7 @@ technician.
 [8. Admin PIN](#8-protect-admin-settings-admin) ·
 [9. Test call](#9-make-a-test-call-everyone) ·
 [Day to day](#using-callbridge-day-to-day) ·
+[Wrap-up](#wrap-up-notes-after-the-call-ends) ·
 [Updates](#updates) ·
 [Checklist](#setup-checklist)
 
@@ -203,13 +204,29 @@ time entries are logged under it.
 | --- | --- |
 | **Call someone** | Type a name or number in *Search contacts or dial* and press Enter or **Call**, or click the phone button on a recent call or contact. |
 | **Answer from anywhere** | The incoming call window appears on top of other apps, with a Windows notification. |
-| **Take notes on a ticket** | Pick the ticket and type. **Save note now** saves immediately; unsaved notes save when you hang up. With no ticket picked, notes are copied to your clipboard. |
+| **Take notes on a ticket** | Pick the ticket and type. **Save note now** saves immediately; unsaved notes save when you hang up. Each save adds a separate note. |
+| **Finish notes after the call** | When the caller hangs up the notes panel stays open. Choose a ticket, keep typing, save, then click **Done**. See [Wrap-up](#wrap-up-notes-after-the-call-ends). |
 | **Create a ticket** | Click **+ New ticket** during the call. For unknown callers, search for the company first. |
 | **Transfer** | **Transfer** → enter the extension → **Blind transfer**, or **Consult first**. |
 | **Park a call** | Click **Park**. On Home, click **Pick up** next to the busy slot, or dial the slot from any phone. |
 | **Check voicemail** | The Voicemail card on Home shows new messages. Click **Call** to listen. |
 | **Log time** | After a call with a ticket picked, adjust the minutes and click **Save time**. |
 | **Hide CallBridge** | Close the window. It keeps running in the tray and still rings. Right-click the tray icon to quit. |
+
+## Wrap-up: notes after the call ends
+
+When the customer hangs up, the notes panel stays open in **wrap-up** so you can finish
+writing up the call:
+
+- **Choose a ticket** in *LOG TO*, or click **+ New ticket**, even after the call has ended.
+- **Keep typing and click Save note now.** Each save adds a separate internal note, and the
+  box clears so your next note is its own entry.
+- **Click Done** when you're finished. Wrap-up also closes as soon as the next call starts.
+
+Notes typed during the call are still saved automatically to the chosen ticket when the call
+ends. Clicking **Done** with notes typed and no ticket chosen copies them to your clipboard.
+
+![CallBridge wrap-up after a call ends](../pages/images/wrap-up.png)
 
 ## Updates
 

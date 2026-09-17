@@ -32,7 +32,7 @@ for updates. The application source code is kept in a private repository.
 ## What you get
 
 - **Screen pop.** Incoming calls show the contact, company, and up to five open tickets.
-- **Notes on the ticket.** Type during the call; notes save to the ticket you pick.
+- **Notes on the ticket.** Type during the call, and keep adding notes after it ends in wrap-up.
 - **Time you confirm.** A time entry draft appears after each call, ready to check and save.
 - **Voicemail and parking.** Message count and park-slot status on the Home screen.
 - **Transfers.** Blind or consult-first.
