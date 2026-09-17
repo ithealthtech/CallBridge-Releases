@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Security;
 using CallBridge.Desktop;
 using SIPSorcery.SIP;
@@ -46,11 +47,24 @@ Check("name mismatch is rejected", !SipTransportProfile.AcceptsCertificateErrors
 Check("untrusted chain is rejected", !SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.RemoteCertificateChainErrors));
 Check("missing certificate is rejected", !SipTransportProfile.AcceptsCertificateErrors(SslPolicyErrors.RemoteCertificateNotAvailable));
 
+Console.WriteLine("Incoming signaling source");
+IPAddress[] phoneSystem = [IPAddress.Parse("203.0.113.10"), IPAddress.Parse("2001:db8::10")];
+Check("phone system address is trusted", SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("203.0.113.10"), phoneSystem, false));
+Check("IPv4-mapped phone system address is trusted", SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("::ffff:203.0.113.10"), phoneSystem, false));
+Check("IPv6 phone system address is trusted", SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("2001:db8::10"), phoneSystem, false));
+Check("other internet address is refused", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("198.51.100.7"), phoneSystem, false));
+Check("LAN address is refused", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("192.168.1.50"), phoneSystem, false));
+Check("loopback is refused by default", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Loopback, phoneSystem, false));
+Check("IPv6 loopback is refused by default", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.IPv6Loopback, phoneSystem, false));
+Check("loopback is allowed with the test switch", SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Loopback, phoneSystem, true));
+Check("test switch does not open other sources", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("198.51.100.7"), phoneSystem, true));
+Check("unknown source is refused", !SipIncomingCallPolicy.IsTrustedSignalingSource(null, phoneSystem, true));
+Check("nothing is trusted before registration", !SipIncomingCallPolicy.IsTrustedSignalingSource(IPAddress.Parse("203.0.113.10"), [], false));
 if (failures.Count > 0)
 {
     Console.WriteLine($"SIP transport smoke test FAILED: {string.Join(", ", failures)}");
     return 1;
 }
 
-Console.WriteLine("SIP transport smoke test passed: new installs default to TLS, secure addresses cannot be downgraded, and certificate validation rejects every policy error.");
+Console.WriteLine("SIP transport smoke test passed: new installs default to TLS, secure addresses cannot be downgraded, certificate validation rejects every policy error, and incoming calls are accepted only from the phone system.");
 return 0;

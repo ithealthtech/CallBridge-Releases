@@ -1,3 +1,4 @@
+using System.Net;
 using SIPSorcery.Media;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
@@ -55,6 +56,9 @@ public sealed class SipSoftphone : IAsyncDisposable
 
     public bool IsRegistered { get; private set; }
 
+    private readonly HashSet<IPAddress> _trustedSignalingAddresses = [];
+    private readonly object _trustedSignalingSync = new();
+    private string _trustedSignalingHost = "";
     private SIPNotifierClient? _voicemailSubscription;
     private readonly Dictionary<string, SIPNotifierClient> _parkSubscriptions = new(StringComparer.Ordinal);
     private IReadOnlyList<string> _parkSlots = [];
@@ -221,10 +225,12 @@ public sealed class SipSoftphone : IAsyncDisposable
         _username = username.Trim();
         _password = password;
         _signalingTransport = signalingTransport;
+        await RefreshTrustedSignalingAddressesAsync(registrarUri.HostAddress);
         _transport = new SIPTransport();
         _transport.AddSIPChannel(SipTransportProfile.CreateChannel(signalingTransport));
         _userAgent = CreateCallAgent(_transport);
         _transport.SIPTransportRequestReceived += HandleTransportRequestAsync;
+        _transport.SIPTransportResponseReceived += RememberRegistrarResponderAsync;
 
         var completion = new TaskCompletionSource<SipOperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _registration = new SIPRegistrationUserAgent(_transport, _username, _password, registrarUri.ToString(), 300);
@@ -695,8 +701,66 @@ public sealed class SipSoftphone : IAsyncDisposable
         return agent;
     }
 
+    private async Task RefreshTrustedSignalingAddressesAsync(string host)
+    {
+        var name = (host ?? "").Split(':')[0].Trim('[', ']');
+        if (name.Length == 0) return;
+        IPAddress[] addresses;
+        try
+        {
+            addresses = IPAddress.TryParse(name, out var literal) ? [literal] : await Dns.GetHostAddressesAsync(name).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or TimeoutException or ArgumentException)
+        {
+            return;
+        }
+        lock (_trustedSignalingSync)
+        {
+            _trustedSignalingHost = name;
+            foreach (var address in addresses) _trustedSignalingAddresses.Add(address);
+        }
+    }
+
+    private Task RememberRegistrarResponderAsync(SIPEndPoint localEndPoint, SIPEndPoint remoteEndPoint, SIPResponse response)
+    {
+        if (response.Header.CSeqMethod == SIPMethodsEnum.REGISTER && remoteEndPoint?.Address is { } address)
+            lock (_trustedSignalingSync) _trustedSignalingAddresses.Add(address);
+        return Task.CompletedTask;
+    }
+
+    private async Task<bool> IsTrustedSourceAsync(SIPEndPoint? remoteEndPoint)
+    {
+        var source = remoteEndPoint?.Address;
+        string host;
+        List<IPAddress> trusted;
+        lock (_trustedSignalingSync)
+        {
+            host = _trustedSignalingHost;
+            trusted = _trustedSignalingAddresses.ToList();
+        }
+        if (SipIncomingCallPolicy.IsTrustedSignalingSource(source, trusted, SipIncomingCallPolicy.LocalTestCallsAllowed)) return true;
+        // The phone system's DNS may have changed since registration; refresh once before refusing.
+        if (!string.IsNullOrWhiteSpace(host))
+        {
+            await RefreshTrustedSignalingAddressesAsync(host);
+            lock (_trustedSignalingSync) trusted = _trustedSignalingAddresses.ToList();
+            if (SipIncomingCallPolicy.IsTrustedSignalingSource(source, trusted, SipIncomingCallPolicy.LocalTestCallsAllowed)) return true;
+        }
+        return false;
+    }
+
     private async Task HandleTransportRequestAsync(SIPEndPoint localEndPoint, SIPEndPoint remoteEndPoint, SIPRequest request)
     {
+        var gated = request.Method == SIPMethodsEnum.NOTIFY
+            || SipIncomingCallPolicy.IsInitialInvite(request.Method, request.Header.To?.ToTag, request.Header.Replaces);
+        if (gated && !await IsTrustedSourceAsync(remoteEndPoint))
+        {
+            // Only the phone system may start calls or send voicemail notices. Details stay out of logs.
+            App.LogStartup($"Refused a SIP {request.Method} from a source other than the phone system.");
+            try { await _transport!.SendResponseAsync(SIPResponse.GetResponse(request, SIPResponseStatusCodesEnum.Forbidden, "Not accepted from this source")); }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Net.Sockets.SocketException or NullReferenceException) { }
+            return;
+        }
         if (await TryHandleUnsolicitedNotifyAsync(request)) return;
         if (!SipIncomingCallPolicy.IsInitialInvite(request.Method, request.Header.To?.ToTag, request.Header.Replaces))
             return;
@@ -1467,7 +1531,11 @@ public sealed class SipSoftphone : IAsyncDisposable
         StopFeatureSubscriptions();
         Voicemail = VoicemailStatus.Unknown;
         try { _registration?.Stop(true); } catch { }
-        if (_transport is not null) _transport.SIPTransportRequestReceived -= HandleTransportRequestAsync;
+        if (_transport is not null)
+        {
+            _transport.SIPTransportRequestReceived -= HandleTransportRequestAsync;
+            _transport.SIPTransportResponseReceived -= RememberRegistrarResponderAsync;
+        }
         try { _transport?.Shutdown(); } catch { }
         try { _userAgent?.Close(); } catch { }
         _registration = null; _userAgent = null; _transport = null;
