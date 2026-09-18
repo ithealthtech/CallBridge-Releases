@@ -307,6 +307,47 @@ public sealed class ConnectWisePlatformClient : IDisposable
         return new(id, payload.summary, "", "New", NullIfEmpty(StringProperty(document.RootElement, "number")));
     }
 
+    /// <summary>Current status and priority of a platform ticket, with the partner's statuses and priorities to choose from.</summary>
+    public async Task<TicketEditState> GetTicketEditStateAsync(string ticketId, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(ticketId)) throw new ArgumentException("ConnectWise Platform ticket ID must be a UUID.", nameof(ticketId));
+        using var ticket = await GetJsonAsync($"{TicketsPath}/{Uri.EscapeDataString(ticketId)}", cancellationToken);
+        var root = ticket.RootElement;
+        string Nested(string parent) => root.TryGetProperty(parent, out var node) && node.ValueKind == JsonValueKind.Object ? StringProperty(node, "id") : "";
+
+        List<TicketChoice> statuses;
+        using (var document = await GetJsonAsync("/api/platform/v1/service/ticketing/statuses", cancellationToken))
+            statuses = Items(document.RootElement)
+                .Where(item => !(item.TryGetProperty("inactiveFlag", out var inactive) && inactive.ValueKind == JsonValueKind.True))
+                .Select(item => new TicketChoice(StringProperty(item, "id"), StringProperty(item, "name"),
+                    string.Equals(StringProperty(item, "category"), "Closed", StringComparison.OrdinalIgnoreCase)))
+                .Where(item => IsPlatformId(item.Id) && item.Name.Length > 0)
+                .ToList();
+        var priorities = (await GetLookupsAsync("/api/platform/v1/service/ticketing/priorities", cancellationToken))
+            .Select(item => new TicketChoice(item.Id, item.Name, false))
+            .ToList();
+        // The platform API identifies assignees by user UUID, which CallBridge can't map to a technician, so "Assign to me" is PSA-only.
+        return new TicketEditState(Nested("status"), Nested("priority"), "", statuses, priorities, CanAssign: false);
+    }
+
+    /// <summary>Changes status and/or priority with JSON Patch (the platform API only allows "replace").</summary>
+    public async Task UpdateTicketAsync(string ticketId, string? statusId, string? priorityId, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(ticketId)) throw new ArgumentException("ConnectWise Platform ticket ID must be a UUID.", nameof(ticketId));
+        var operations = new List<object>();
+        if (statusId is not null)
+            operations.Add(new { op = "replace", path = "/status/id", value = IsPlatformId(statusId) ? statusId : throw new ArgumentException("Choose a valid ticket status.") });
+        if (priorityId is not null)
+            operations.Add(new { op = "replace", path = "/priority/id", value = IsPlatformId(priorityId) ? priorityId : throw new ArgumentException("Choose a valid ticket priority.") });
+        if (operations.Count == 0) return;
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"{TicketsPath}/{Uri.EscapeDataString(ticketId)}")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(operations), Encoding.UTF8, "application/json-patch+json")
+        };
+        using var response = await SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(ApiError(response, await response.Content.ReadAsStringAsync(cancellationToken)));
+    }
+
     /// <summary>Adds a note visible only to the partner (internal).</summary>
     public async Task AddTicketNoteAsync(string ticketId, string text, CancellationToken cancellationToken = default)
     {

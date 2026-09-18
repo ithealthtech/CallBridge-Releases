@@ -707,6 +707,11 @@ internal static class Program
             throw new InvalidOperationException("Save number should default to the Direct phone type and prefill the caller's name.");
         if (LogicalButtons(phoneDialog).First(button => Equals(button.Content, "Save number")).IsEnabled)
             throw new InvalidOperationException("Save number must stay disabled until a company is chosen.");
+        var closeDialog = new CloseTicketWindow("48213", [new TicketChoice("12", "Completed", true), new TicketChoice("13", "Closed", true)], "Reset the printer queue.");
+        if (closeDialog.ClosedStatus?.Name != "Closed" || closeDialog.Resolution != "Reset the printer queue.")
+            throw new InvalidOperationException("Close ticket should default to the Closed status and use the call notes as the resolution.");
+        if (!LogicalButtons(closeDialog).First(button => Equals(button.Content, "Close ticket")).IsEnabled)
+            throw new InvalidOperationException("Close ticket should be enabled when a status and resolution are present.");
         var emptyDialog = new TicketNoteWindow("Blue Ridge Dental", "Dana Mercer", []);
         if (emptyDialog.TicketId.Length != 0)
             throw new InvalidOperationException("With no open tickets, no ticket should be selected.");
@@ -1319,6 +1324,16 @@ internal static class Program
         if (Element(window, "CallNotesText") is not TextBox wrapUpNotes) throw new InvalidOperationException("Missing call notes box.");
         wrapUpNotes.Text = "Followed up after the caller hung up.";
         DrainDispatcher(window.Dispatcher);
+        if (Element(window, "TicketActionsBar") is Border actionsBar && Element(window, "TicketStatusBox") is ComboBox statusBox && Element(window, "TicketPriorityBox") is ComboBox priorityBox)
+        {
+            var statuses = new List<TicketChoice> { new("11", "New", false), new("14", "In Progress", false), new("12", "Closed", true) };
+            var priorities = new List<TicketChoice> { new("1", "Priority 1 - Critical", false), new("3", "Priority 3 - Normal", false) };
+            statusBox.ItemsSource = statuses; statusBox.SelectedItem = statuses[1]; statusBox.IsEnabled = true;
+            priorityBox.ItemsSource = priorities; priorityBox.SelectedItem = priorities[1]; priorityBox.IsEnabled = true;
+            actionsBar.Visibility = Visibility.Visible;
+            DrainDispatcher(window.Dispatcher);
+        }
+        else throw new InvalidOperationException("The call panel should have ticket status and priority controls.");
         var wrapUpPath = RenderWindowPreview(window, "callbridge-wrap-up.png");
         Button(window, "CloseWrapUpButton").RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         DrainDispatcher(window.Dispatcher);

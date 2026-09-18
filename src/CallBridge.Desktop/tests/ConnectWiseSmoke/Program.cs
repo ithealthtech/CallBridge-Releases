@@ -176,6 +176,25 @@ using (var lookupClient = new ConnectWiseClient(settings, contactHandler))
 }
 Assert(ConnectWiseClient.PsaPhoneValue("+44 20 7946 0958") == "442079460958", "International numbers keep their country code.");
 Assert(ConnectWiseTicketing.CanSavePhoneNumbers(settings) && !ConnectWiseTicketing.CanSavePhoneNumbers(new AppSettings { ConnectWiseTicketingMode = ConnectWiseTicketingMode.Platform }), "Saving numbers needs the PSA connection.");
+// ---- Ticket status, priority, owner, and close (PSA)
+var editHandler = new FakeTicketEditHandler();
+using (var editClient = new ConnectWiseClient(settings, editHandler))
+{
+    var state = await editClient.GetTicketEditStateAsync("48213");
+    Assert(state.StatusId == "11" && state.PriorityId == "3" && state.Owner == "jsmith" && state.CanAssign, "Current status, priority, and owner should load.");
+    Assert(state.Statuses.Count == 2 && state.Statuses.Single(status => status.Closed).Name == "Closed" && state.Priorities.Count == 2, "The ticket board's statuses and PSA priorities should load.");
+    await editClient.UpdateTicketAsync("48213", "12", null, null);
+    Assert(editHandler.LastPatch == """[{"op":"replace","path":"status","value":{"id":12}}]""", $"Status changes should PATCH status by ID, got {editHandler.LastPatch}");
+    await editClient.UpdateTicketAsync("48213", null, "1", "tgifol");
+    Assert(editHandler.LastPatch == """[{"op":"replace","path":"priority","value":{"id":1}},{"op":"replace","path":"owner","value":{"identifier":"tgifol"}}]""", $"Priority and owner should PATCH together, got {editHandler.LastPatch}");
+    await editClient.AddResolutionNoteAsync("48213", "Reset the printer queue.");
+    Assert(editHandler.SawResolutionNote, "Closing should add a resolution note.");
+    try { await editClient.UpdateTicketAsync("48213", null, null, "bad member!"); throw new InvalidOperationException("Invalid member IDs must be rejected."); }
+    catch (ArgumentException) { }
+    try { await editClient.UpdateTicketAsync("48213 or 1=1", "12", null, null); throw new InvalidOperationException("Non-numeric ticket IDs must be rejected."); }
+    catch (ArgumentException) { }
+}
+
 // ---- Slow PSA ticket creation: the ticket was created but the response timed out
 ConnectWiseClient.CreateTicketTimeout = TimeSpan.FromMilliseconds(300);
 var slowHandler = new SlowCreateHandler();
@@ -219,6 +238,10 @@ using (var ticketingPlatform = new ConnectWisePlatformClient(ticketingSettings, 
     Assert(ticketingHandler.SawCreateTicket && createdPlatform.Id == ticketUuid && createdPlatform.DisplayNumber == "5151", "Platform ticket creation payload or parsing failed.");
 
     await ticketingPlatform.AddTicketNoteAsync(ticketUuid, "Called back.");
+    var platformEdit = await ticketingPlatform.GetTicketEditStateAsync(ticketUuid);
+    Assert(platformEdit.StatusId == "77777777-7777-7777-7777-777777777777" && !platformEdit.CanAssign && platformEdit.Statuses.Any(status => status.Closed) && platformEdit.Priorities.Count == 1, "Platform ticket edit state should load, with assignment unavailable.");
+    await ticketingPlatform.UpdateTicketAsync(ticketUuid, "66666666-6666-6666-6666-666666666666", null);
+    Assert(ticketingHandler.LastPatch == """[{"op":"replace","path":"/status/id","value":"66666666-6666-6666-6666-666666666666"}]""", $"Platform status changes should use JSON Patch replace, got {ticketingHandler.LastPatch}");
     Assert(ticketingHandler.SawInternalNote, "Platform notes must be posted as partner-only (visibility 2).");
 
     var boards = await ticketingPlatform.GetServiceBoardsAsync();
@@ -416,6 +439,7 @@ sealed class FakePlatformTicketingHandler : HttpMessageHandler
     public bool SawOpenTicketQuery { get; private set; }
     public bool SawCreateTicket { get; private set; }
     public bool SawInternalNote { get; private set; }
+    public string LastPatch { get; private set; } = "";
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -448,6 +472,13 @@ sealed class FakePlatformTicketingHandler : HttpMessageHandler
                 return Json("""[{"id":"66666666-6666-6666-6666-666666666666","name":"Closed","category":"Closed"},{"id":"77777777-7777-7777-7777-777777777777","name":"In Progress","category":"InProgress"}]""");
             case "/api/platform/v1/service/ticketing/service-boards":
                 return Json("""[{"id":"33333333-3333-3333-3333-333333333333","name":"Help Desk"},{"id":"88888888-8888-8888-8888-888888888888","name":"Old","inactiveFlag":true}]""");
+            case "/api/platform/v2/service/ticketing/tickets/22222222-2222-2222-2222-222222222222" when request.Method == HttpMethod.Get:
+                return Json("""{"id":"22222222-2222-2222-2222-222222222222","status":{"id":"77777777-7777-7777-7777-777777777777"},"priority":{"id":"99999999-9999-9999-9999-999999999999"}}""");
+            case "/api/platform/v2/service/ticketing/tickets/22222222-2222-2222-2222-222222222222" when request.Method == HttpMethod.Patch:
+                LastPatch = body;
+                return Json("{}");
+            case "/api/platform/v1/service/ticketing/priorities":
+                return Json("""[{"id":"99999999-9999-9999-9999-999999999999","name":"High"}]""");
             case "/api/platform/v2/service/ticketing/tickets" when request.Method == HttpMethod.Get:
                 SawOpenTicketQuery = query.Contains("companyIds=11111111-1111-1111-1111-111111111111")
                     && query.Contains("statusIds=[notIn],66666666-6666-6666-6666-666666666666")
@@ -535,6 +566,39 @@ sealed class FakeContactPhoneHandler : HttpMessageHandler
             SawCreateContact = r.GetProperty("firstName").GetString() == "Sonia" && r.GetProperty("company").GetProperty("id").GetInt64() == 101
                 && item.GetProperty("value").GetString() == "7322977575" && item.GetProperty("communicationType").GetString() == "Phone";
             return Json("""{"id":303}""", HttpStatusCode.Created);
+        }
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
+        new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+}
+
+sealed class FakeTicketEditHandler : HttpMessageHandler
+{
+    public string LastPatch { get; private set; } = "";
+    public bool SawResolutionNote { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        if (path.EndsWith("/service/tickets/48213") && request.Method == HttpMethod.Get)
+            return Json("""{"id":48213,"board":{"id":27},"status":{"id":11,"name":"New"},"priority":{"id":3,"name":"Priority 3 - Normal"},"owner":{"identifier":"jsmith"}}""");
+        if (path.EndsWith("/service/boards/27/statuses"))
+            return Json("""[{"id":11,"name":"New","closedStatus":false},{"id":12,"name":"Closed","closedStatus":true}]""");
+        if (path.EndsWith("/service/priorities"))
+            return Json("""[{"id":1,"name":"Priority 1 - Critical"},{"id":3,"name":"Priority 3 - Normal"}]""");
+        if (path.EndsWith("/service/tickets/48213") && request.Method == HttpMethod.Patch)
+        {
+            LastPatch = body;
+            return Json("{}");
+        }
+        if (path.EndsWith("/service/tickets/48213/notes") && request.Method == HttpMethod.Post)
+        {
+            using var doc = JsonDocument.Parse(body);
+            SawResolutionNote = doc.RootElement.GetProperty("resolutionFlag").GetBoolean() && doc.RootElement.GetProperty("text").GetString() == "Reset the printer queue.";
+            return Json("{}", HttpStatusCode.Created);
         }
         return new HttpResponseMessage(HttpStatusCode.NotFound);
     }

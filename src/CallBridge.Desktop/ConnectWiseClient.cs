@@ -13,6 +13,15 @@ public sealed record ConnectWiseTicketSummary(string Id, string Summary, string 
     /// <summary>Human-readable ticket number: the PSA ID, or the platform ticket number (platform IDs are UUIDs).</summary>
     public string DisplayNumber => Number ?? Id;
 }
+/// <summary>A status or priority option. Closed marks statuses that close the ticket.</summary>
+public sealed record TicketChoice(string Id, string Name, bool Closed)
+{
+    public override string ToString() => Name;
+}
+
+/// <summary>A ticket's current status, priority, and owner, plus the choices for changing them.</summary>
+public sealed record TicketEditState(string StatusId, string PriorityId, string Owner, IReadOnlyList<TicketChoice> Statuses, IReadOnlyList<TicketChoice> Priorities, bool CanAssign);
+
 public sealed record ConnectWisePhoneType(int Id, string Name)
 {
     public override string ToString() => Name;
@@ -282,6 +291,91 @@ public sealed class ConnectWiseClient : IDisposable
     }
 
     private static string FirstNonEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
+    /// <summary>The ticket fields the call panel edits: board (for its statuses), status, priority, and owner.</summary>
+    public async Task<TicketEditState> GetTicketEditStateAsync(string ticketId, CancellationToken cancellationToken = default)
+    {
+        var id = NumericTicketId(ticketId);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ReadTimeout);
+        using var response = await _http.GetAsync($"{_apiBase}/service/tickets/{id}?fields=id,board/id,status/id,status/name,priority/id,priority/name,owner/identifier", timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        var root = document.RootElement;
+        string Nested(string parent, string child) => root.TryGetProperty(parent, out var node) && node.ValueKind == JsonValueKind.Object ? Property(node, child) : "";
+        var boardId = Nested("board", "id");
+        var statuses = await GetBoardStatusesAsync(boardId, timeout.Token);
+        var priorities = await GetPrioritiesAsync(timeout.Token);
+        return new TicketEditState(Nested("status", "id"), Nested("priority", "id"), Nested("owner", "identifier"), statuses, priorities, CanAssign: true);
+    }
+
+    private async Task<List<TicketChoice>> GetBoardStatusesAsync(string boardId, CancellationToken cancellationToken)
+    {
+        if (!long.TryParse(boardId, out var board) || board <= 0) return [];
+        var conditions = Uri.EscapeDataString("inactive=false");
+        using var response = await _http.GetAsync($"{_apiBase}/service/boards/{board}/statuses?conditions={conditions}&orderBy=sortOrder%20asc&pageSize=100&fields=id,name,closedStatus", cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return document.RootElement.ValueKind != JsonValueKind.Array ? [] : document.RootElement.EnumerateArray()
+            .Select(status => new TicketChoice(Property(status, "id"), Property(status, "name"),
+                status.TryGetProperty("closedStatus", out var closed) && closed.ValueKind == JsonValueKind.True))
+            .Where(status => long.TryParse(status.Id, out _) && status.Name.Length > 0)
+            .ToList();
+    }
+
+    private async Task<List<TicketChoice>> GetPrioritiesAsync(CancellationToken cancellationToken)
+    {
+        using var response = await _http.GetAsync($"{_apiBase}/service/priorities?orderBy=sortOrder%20asc&pageSize=50&fields=id,name", cancellationToken);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        return document.RootElement.ValueKind != JsonValueKind.Array ? [] : document.RootElement.EnumerateArray()
+            .Select(priority => new TicketChoice(Property(priority, "id"), Property(priority, "name"), false))
+            .Where(priority => long.TryParse(priority.Id, out _) && priority.Name.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>Changes the ticket's status, priority, and/or owner in one PATCH. Null values are left alone.</summary>
+    public async Task UpdateTicketAsync(string ticketId, string? statusId, string? priorityId, string? ownerIdentifier, CancellationToken cancellationToken = default)
+    {
+        var id = NumericTicketId(ticketId);
+        var operations = new List<object>();
+        if (statusId is not null) operations.Add(new { op = "replace", path = "status", value = new { id = long.Parse(NumericChoice(statusId, "status")) } });
+        if (priorityId is not null) operations.Add(new { op = "replace", path = "priority", value = new { id = long.Parse(NumericChoice(priorityId, "priority")) } });
+        if (ownerIdentifier is not null)
+        {
+            var member = ownerIdentifier.Trim();
+            if (member.Length is 0 or > 50 || member.Any(ch => !char.IsLetterOrDigit(ch) && ch is not '.' and not '_' and not '-'))
+                throw new ArgumentException("Add your ConnectWise member ID in Settings > Sign-in first.", nameof(ownerIdentifier));
+            operations.Add(new { op = "replace", path = "owner", value = new { identifier = member } });
+        }
+        if (operations.Count == 0) return;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"{_apiBase}/service/tickets/{id}")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(operations), Encoding.UTF8, "application/json")
+        };
+        using var response = await _http.SendAsync(request, timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+    }
+
+    /// <summary>Adds a resolution note (the note type PSA shows as the ticket's resolution).</summary>
+    public async Task AddResolutionNoteAsync(string ticketId, string text, CancellationToken cancellationToken = default)
+    {
+        var id = NumericTicketId(ticketId);
+        if (string.IsNullOrWhiteSpace(text)) throw new ArgumentException("Enter a resolution.", nameof(text));
+        var payload = new { text = text.Trim(), detailDescriptionFlag = false, internalAnalysisFlag = false, resolutionFlag = true };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await _http.PostAsync($"{_apiBase}/service/tickets/{id}/notes", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+    }
+
+    private static long NumericTicketId(string ticketId) =>
+        long.TryParse(ticketId, out var id) && id > 0 ? id : throw new ArgumentException("ConnectWise ticket ID must be numeric.", nameof(ticketId));
+
+    private static string NumericChoice(string value, string what) =>
+        long.TryParse(value, out var id) && id > 0 ? value : throw new ArgumentException($"Choose a valid ticket {what}.", what);
 
     /// <summary>Phone communication types (Direct, Mobile, and so on) configured in this PSA.</summary>
     public async Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default)

@@ -141,6 +141,39 @@ public sealed class ConnectWiseTicketing : IDisposable
         await Psa.AddTicketNoteAsync(ticketId, text, cancellationToken);
     }
 
+    /// <summary>Loads what the call panel needs to change a ticket's status and priority, from whichever API owns it.</summary>
+    public async Task<TicketEditState> GetTicketEditStateAsync(string ticketId, CancellationToken cancellationToken = default) =>
+        ConnectWisePlatformClient.IsPlatformId(ticketId)
+            ? await PlatformClient.GetTicketEditStateAsync(ticketId, cancellationToken)
+            : await Psa.GetTicketEditStateAsync(ticketId, cancellationToken);
+
+    public async Task UpdateTicketAsync(string ticketId, string? statusId = null, string? priorityId = null, string? ownerIdentifier = null, CancellationToken cancellationToken = default)
+    {
+        if (ConnectWisePlatformClient.IsPlatformId(ticketId))
+        {
+            if (ownerIdentifier is not null) throw new InvalidOperationException("Assigning platform tickets isn't available through the ConnectWise Platform API yet.");
+            await PlatformClient.UpdateTicketAsync(ticketId, statusId, priorityId, cancellationToken);
+            return;
+        }
+        await Psa.UpdateTicketAsync(ticketId, statusId, priorityId, ownerIdentifier, cancellationToken);
+    }
+
+    /// <summary>
+    /// Closes a ticket: saves the resolution first (a PSA resolution note, or an internal note on platform tickets), then
+    /// sets the closed status. If the status change fails, the resolution is already on the ticket.
+    /// </summary>
+    public async Task CloseTicketAsync(string ticketId, string closedStatusId, string resolution, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(resolution))
+        {
+            if (ConnectWisePlatformClient.IsPlatformId(ticketId))
+                await PlatformClient.AddTicketNoteAsync(ticketId, $"Resolution: {resolution.Trim()}", cancellationToken);
+            else
+                await Psa.AddResolutionNoteAsync(ticketId, resolution, cancellationToken);
+        }
+        await UpdateTicketAsync(ticketId, statusId: closedStatusId, cancellationToken: cancellationToken);
+    }
+
     /// <summary>True when time on this ticket is saved as a PSA time entry (which needs the tech's member ID).</summary>
     public static bool RecordsTimeAsEntry(string ticketId) => !ConnectWisePlatformClient.IsPlatformId(ticketId);
 

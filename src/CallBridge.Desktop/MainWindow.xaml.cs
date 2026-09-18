@@ -576,7 +576,11 @@ public partial class MainWindow : Window
         SaveCallNoteButton.Click += async (_, _) => await SaveCallNoteAsync();
         CloseWrapUpButton.Click += (_, _) => EndWrapUp();
         SaveCallerNumberButton.Click += async (_, _) => await SaveCurrentCallerNumberAsync();
-        CallTicketPicker.SelectionChanged += (_, _) => UpdateCallNoteState();
+        CallTicketPicker.SelectionChanged += async (_, _) => { UpdateCallNoteState(); await LoadTicketActionsAsync(); };
+        TicketStatusBox.SelectionChanged += async (_, _) => await ChangeTicketFieldAsync("status");
+        TicketPriorityBox.SelectionChanged += async (_, _) => await ChangeTicketFieldAsync("priority");
+        AssignToMeButton.Click += async (_, _) => await AssignTicketToMeAsync();
+        CloseTicketButton.Click += async (_, _) => await CloseTicketFromCallAsync();
         CallNotesText.TextChanged += (_, _) =>
         {
             CallNotesPlaceholder.Visibility = string.IsNullOrEmpty(CallNotesText.Text) ? Visibility.Visible : Visibility.Collapsed;
@@ -821,6 +825,179 @@ public partial class MainWindow : Window
         }
     }
 
+    private CancellationTokenSource? _ticketActionsCts;
+    private TicketEditState? _ticketEditState;
+    private string _ticketEditTicketId = "";
+    private bool _applyingTicketEditState;
+
+    /// <summary>Loads status, priority, and owner for the ticket picked in LOG TO, so the tech can change them from the call.</summary>
+    private async Task LoadTicketActionsAsync()
+    {
+        _ticketActionsCts?.Cancel();
+        _ticketActionsCts?.Dispose();
+        _ticketActionsCts = null;
+        _ticketEditState = null;
+        _ticketEditTicketId = "";
+        if (CallTicketPicker.SelectedItem is not CallTicketChoice { Id.Length: > 0 } ticket || !ConnectWiseTicketing.IsConfigured(_settings))
+        {
+            TicketActionsBar.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var source = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _ticketActionsCts = source;
+        TicketActionsBar.Visibility = Visibility.Visible;
+        SetTicketActionsEnabled(false);
+        TicketActionStatusText.Text = "Loading ticket details...";
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            var state = await client.GetTicketEditStateAsync(ticket.Id, source.Token);
+            if (source.IsCancellationRequested || CallTicketPicker.SelectedItem is not CallTicketChoice current || current.Id != ticket.Id) return;
+            _ticketEditState = state;
+            _ticketEditTicketId = ticket.Id;
+            _applyingTicketEditState = true;
+            try
+            {
+                TicketStatusBox.ItemsSource = state.Statuses;
+                TicketStatusBox.SelectedItem = state.Statuses.FirstOrDefault(status => status.Id == state.StatusId);
+                TicketPriorityBox.ItemsSource = state.Priorities;
+                TicketPriorityBox.SelectedItem = state.Priorities.FirstOrDefault(priority => priority.Id == state.PriorityId);
+            }
+            finally { _applyingTicketEditState = false; }
+            AssignToMeButton.Visibility = state.CanAssign ? Visibility.Visible : Visibility.Collapsed;
+            SetTicketActionsEnabled(true);
+            UpdateAssignButton();
+            TicketActionStatusText.Text = "";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            if (source.IsCancellationRequested && ex is TaskCanceledException && _ticketActionsCts != source) return;
+            TicketActionStatusText.Text = $"Ticket details couldn't be loaded: {ex.Message}";
+        }
+    }
+
+    private void SetTicketActionsEnabled(bool enabled)
+    {
+        TicketStatusBox.IsEnabled = enabled && TicketStatusBox.Items.Count > 0;
+        TicketPriorityBox.IsEnabled = enabled && TicketPriorityBox.Items.Count > 0;
+        AssignToMeButton.IsEnabled = enabled;
+        CloseTicketButton.IsEnabled = enabled && _ticketEditState?.Statuses.Any(status => status.Closed) == true;
+    }
+
+    private void UpdateAssignButton()
+    {
+        var member = _settings.ConnectWiseMemberIdentifier.Trim();
+        var mine = member.Length > 0 && string.Equals(_ticketEditState?.Owner, member, StringComparison.OrdinalIgnoreCase);
+        AssignToMeButton.Content = mine ? "Assigned to you" : "Assign to me";
+        AssignToMeButton.IsEnabled = !mine && _ticketEditState is not null;
+    }
+
+    private async Task ChangeTicketFieldAsync(string field)
+    {
+        if (_applyingTicketEditState || _ticketEditState is not { } state || _ticketEditTicketId.Length == 0) return;
+        var box = field == "status" ? TicketStatusBox : TicketPriorityBox;
+        if (box.SelectedItem is not TicketChoice choice) return;
+        var previous = field == "status" ? state.StatusId : state.PriorityId;
+        if (choice.Id == previous) return;
+        var ticketId = _ticketEditTicketId;
+        SetTicketActionsEnabled(false);
+        TicketActionStatusText.Text = $"Changing {field} to {choice.Name}...";
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            if (field == "status") await client.UpdateTicketAsync(ticketId, statusId: choice.Id);
+            else await client.UpdateTicketAsync(ticketId, priorityId: choice.Id);
+            _ticketEditState = field == "status" ? state with { StatusId = choice.Id } : state with { PriorityId = choice.Id };
+            TicketActionStatusText.Text = $"#{TicketNumber(ticketId)} {field} is now {choice.Name}.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidOperationException or JsonException)
+        {
+            _applyingTicketEditState = true;
+            try { box.SelectedItem = (field == "status" ? state.Statuses : state.Priorities).FirstOrDefault(item => item.Id == previous); }
+            finally { _applyingTicketEditState = false; }
+            TicketActionStatusText.Text = $"The {field} wasn't changed: {ex.Message}";
+        }
+        finally
+        {
+            SetTicketActionsEnabled(true);
+            UpdateAssignButton();
+        }
+    }
+
+    private async Task AssignTicketToMeAsync()
+    {
+        if (_ticketEditState is not { } state || _ticketEditTicketId.Length == 0) return;
+        var member = _settings.ConnectWiseMemberIdentifier.Trim();
+        if (member.Length == 0)
+        {
+            ShowSettings();
+            ShowSettingsSection("SignIn");
+            SettingsCwMemberText.Focus();
+            return;
+        }
+        var ticketId = _ticketEditTicketId;
+        SetTicketActionsEnabled(false);
+        TicketActionStatusText.Text = "Assigning the ticket to you...";
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            await client.UpdateTicketAsync(ticketId, ownerIdentifier: member);
+            _ticketEditState = state with { Owner = member };
+            TicketActionStatusText.Text = $"#{TicketNumber(ticketId)} is now assigned to {member}.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidOperationException or JsonException)
+        {
+            TicketActionStatusText.Text = $"The ticket wasn't assigned: {ex.Message}";
+        }
+        finally
+        {
+            SetTicketActionsEnabled(true);
+            UpdateAssignButton();
+        }
+    }
+
+    /// <summary>Closes the ticket with a resolution. The call notes are offered as the resolution text.</summary>
+    private async Task CloseTicketFromCallAsync()
+    {
+        if (_ticketEditState is not { } state || _ticketEditTicketId.Length == 0) return;
+        var closedStatuses = state.Statuses.Where(status => status.Closed).ToList();
+        if (closedStatuses.Count == 0) { TicketActionStatusText.Text = "This ticket's board has no closed status."; return; }
+        var ticketId = _ticketEditTicketId;
+        var notes = CallNotesText.Text.Trim();
+        var editor = new CloseTicketWindow(TicketNumber(ticketId), closedStatuses, notes) { Owner = this };
+        if (editor.ShowDialog() != true || editor.ClosedStatus is not { } closed) return;
+
+        SetTicketActionsEnabled(false);
+        TicketActionStatusText.Text = "Closing the ticket...";
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            await client.CloseTicketAsync(ticketId, closed.Id, editor.Resolution);
+            _ticketEditState = state with { StatusId = closed.Id };
+            _applyingTicketEditState = true;
+            try { TicketStatusBox.SelectedItem = state.Statuses.FirstOrDefault(status => status.Id == closed.Id); }
+            finally { _applyingTicketEditState = false; }
+            // The call notes became the resolution, so don't also save them as an internal note.
+            if (notes.Length > 0 && editor.Resolution.Contains(notes, StringComparison.Ordinal))
+            {
+                CallNotesText.Clear();
+                _lastSavedNote = "";
+            }
+            TicketActionStatusText.Text = $"#{TicketNumber(ticketId)} closed as {closed.Name}.";
+            ShowBanner($"Ticket #{TicketNumber(ticketId)} was closed as {closed.Name}.", GoodHex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidOperationException or JsonException)
+        {
+            TicketActionStatusText.Text = $"The ticket wasn't closed: {ex.Message}";
+        }
+        finally
+        {
+            SetTicketActionsEnabled(true);
+            UpdateAssignButton();
+        }
+    }
+
     private async Task AddTicketNoteAsync(string ticketId, string note)
     {
         if (!ConnectWiseTicketing.IsConfigured(_settings)) throw new InvalidOperationException("Connect ConnectWise in Settings first.");
@@ -918,6 +1095,10 @@ public partial class MainWindow : Window
 
     private void ResetCallWorkspace()
     {
+        _ticketActionsCts?.Cancel();
+        _ticketEditState = null;
+        _ticketEditTicketId = "";
+        TicketActionsBar.Visibility = Visibility.Collapsed;
         _callContextCts?.Cancel();
         _callContextCts?.Dispose();
         _callContextCts = null;
@@ -4815,4 +4996,60 @@ public sealed class SavePhoneWindow : Window
 
     private static void AddLabel(Panel panel, string text) =>
         panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = ThemePalette.Brush("Muted"), Margin = new Thickness(0, 12, 0, 5) });
+}
+
+/// <summary>Confirms closing a ticket: which closed status to use and the resolution text.</summary>
+public sealed class CloseTicketWindow : Window
+{
+    private readonly ComboBox _status = new();
+    private readonly TextBox _resolution = new() { Padding = new Thickness(9), Height = 150, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+    public TicketChoice? ClosedStatus => _status.SelectedItem as TicketChoice;
+    public string Resolution => _resolution.Text.Trim();
+
+    public CloseTicketWindow(string ticketNumber, IReadOnlyList<TicketChoice> closedStatuses, string resolution)
+    {
+        Title = "Close ticket"; Width = 540; Height = 440; MinWidth = 420; MinHeight = 360;
+        ResizeMode = ResizeMode.CanResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ThemeWindows.ApplyDialog(this);
+        foreach (var status in closedStatuses) _status.Items.Add(status);
+        _status.SelectedItem = closedStatuses.FirstOrDefault(status => status.Name.Contains("closed", StringComparison.OrdinalIgnoreCase))
+            ?? closedStatuses.FirstOrDefault(status => status.Name.Contains("resolved", StringComparison.OrdinalIgnoreCase))
+            ?? closedStatuses.FirstOrDefault();
+        _resolution.Text = resolution;
+
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = $"Close ticket #{ticketNumber}", FontSize = 22, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        stack.Children.Add(new TextBlock
+        {
+            Text = "The resolution is saved on the ticket before it's closed. Your call notes are filled in; edit them as needed.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ThemePalette.Brush("Muted"),
+            Margin = new Thickness(0, 6, 0, 10)
+        });
+        AddField(stack, "Close as", _status);
+        AddField(stack, "Resolution", _resolution);
+
+        var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 9, 16, 9), Margin = new Thickness(0, 0, 10, 0) };
+        var close = new Button { Content = "Close ticket", IsDefault = true, Padding = new Thickness(16, 9, 16, 9), Background = ThemePalette.Brush("Accent"), Foreground = Brushes.White };
+        close.Click += (_, _) => { if (ClosedStatus is not null && Resolution.Length > 0) DialogResult = true; };
+        void Update() => close.IsEnabled = ClosedStatus is not null && Resolution.Length > 0;
+        _resolution.TextChanged += (_, _) => Update();
+        _status.SelectionChanged += (_, _) => Update();
+        Update();
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(close);
+        foreach (var button in buttons.Children.OfType<Button>()) DialogControlMetadata.Apply(button);
+        stack.Children.Add(buttons);
+        Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Loaded += (_, _) => _resolution.Focus();
+    }
+
+    private static void AddField(Panel panel, string label, Control field)
+    {
+        panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, Foreground = ThemePalette.Brush("Muted"), Margin = new Thickness(0, 6, 0, 5) });
+        DialogControlMetadata.Apply(field, label);
+        panel.Children.Add(field);
+    }
 }

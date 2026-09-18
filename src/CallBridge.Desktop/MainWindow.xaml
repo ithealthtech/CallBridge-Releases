@@ -301,6 +301,7 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="*"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
@@ -356,10 +357,24 @@
                                 <Button x:Name="NewCallTicketButton" Grid.Column="3" Content="+ New ticket" Style="{StaticResource ToolbarButton}" Margin="6,0,0,0"/>
                             </Grid>
 
-                            <TextBox x:Name="CallNotesText" Grid.Row="3" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MinHeight="120" Padding="10"/>
-                            <TextBlock x:Name="CallNotesPlaceholder" Grid.Row="3" Text="Call notes" Foreground="{DynamicResource Muted}" Margin="12,10,0,0" IsHitTestVisible="False"/>
+                            <Border x:Name="TicketActionsBar" Grid.Row="3" Visibility="Collapsed" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,10">
+                                <StackPanel>
+                                    <WrapPanel>
+                                        <TextBlock Text="STATUS" Style="{StaticResource SectionLabel}" VerticalAlignment="Center" Margin="0,0,6,6"/>
+                                        <ComboBox x:Name="TicketStatusBox" MinWidth="150" Margin="0,0,12,6" ToolTip="Change this ticket's status" AutomationProperties.Name="Ticket status"/>
+                                        <TextBlock Text="PRIORITY" Style="{StaticResource SectionLabel}" VerticalAlignment="Center" Margin="0,0,6,6"/>
+                                        <ComboBox x:Name="TicketPriorityBox" MinWidth="140" Margin="0,0,12,6" ToolTip="Change this ticket's priority" AutomationProperties.Name="Ticket priority"/>
+                                        <Button x:Name="AssignToMeButton" Content="Assign to me" Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Make you the owner of this ticket" AutomationProperties.Name="Assign ticket to me"/>
+                                        <Button x:Name="CloseTicketButton" Content="Close ticket..." Style="{StaticResource ToolbarButton}" Margin="0,0,6,6" ToolTip="Close this ticket with a resolution" AutomationProperties.Name="Close ticket"/>
+                                    </WrapPanel>
+                                    <TextBlock x:Name="TicketActionStatusText" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                                </StackPanel>
+                            </Border>
 
-                            <DockPanel Grid.Row="4" Margin="0,10,0,0">
+                            <TextBox x:Name="CallNotesText" Grid.Row="4" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" MinHeight="120" Padding="10"/>
+                            <TextBlock x:Name="CallNotesPlaceholder" Grid.Row="4" Text="Call notes" Foreground="{DynamicResource Muted}" Margin="12,10,0,0" IsHitTestVisible="False"/>
+
+                            <DockPanel Grid.Row="5" Margin="0,10,0,0">
                                 <Button x:Name="SaveCallNoteButton" DockPanel.Dock="Right" Content="Save note now" Style="{StaticResource PrimaryButton}"/>
                                 <Button x:Name="CloseWrapUpButton" DockPanel.Dock="Right" Visibility="Collapsed" Content="Done" Style="{StaticResource ToolbarButton}" Margin="0,0,6,0" ToolTip="Finish this call and go back to Home" AutomationProperties.Name="Finish wrap-up"/>
                                 <TextBlock x:Name="CallNoteStatusText" Text="Notes are saved to the selected ticket when you save or hang up." Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0"/>
