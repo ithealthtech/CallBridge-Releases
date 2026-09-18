@@ -164,6 +164,16 @@ using (var contactClient = new ConnectWiseClient(settings, contactHandler))
     try { await contactClient.GetCompanyContactsAsync("101 or 1=1"); throw new InvalidOperationException("Company IDs must be numeric."); }
     catch (ArgumentException) { }
 }
+using (var lookupClient = new ConnectWiseClient(settings, contactHandler))
+{
+    var byContact = await lookupClient.FindByPhoneAsync("+1 (908) 555-0100");
+    Assert(byContact is { ContactName: "Avery Stone", CompanyId: "101", CompanyName: "Acme Widgets" }, "A number on a contact should find that contact.");
+    Assert(contactHandler.LastPhoneSearch == "9085550100", "Phone lookups should search the last 10 digits.");
+    var byCompany = await lookupClient.FindByPhoneAsync("908-555-0199");
+    Assert(byCompany is { ContactName: "", CompanyId: "101", CompanyName: "Acme Widgets" }, "A company main number should find the company when no contact has it.");
+    Assert(await lookupClient.FindByPhoneAsync("555-0000") is null, "Unknown numbers should return no match.");
+    Assert(await lookupClient.FindByPhoneAsync("101") is null, "Extensions are never looked up.");
+}
 Assert(ConnectWiseClient.PsaPhoneValue("+44 20 7946 0958") == "442079460958", "International numbers keep their country code.");
 Assert(ConnectWiseTicketing.CanSavePhoneNumbers(settings) && !ConnectWiseTicketing.CanSavePhoneNumbers(new AppSettings { ConnectWiseTicketingMode = ConnectWiseTicketingMode.Platform }), "Saving numbers needs the PSA connection.");
 // ---- Slow PSA ticket creation: the ticket was created but the response timed out
@@ -489,6 +499,7 @@ sealed class FakeContactPhoneHandler : HttpMessageHandler
 {
     public bool SawAddPhone { get; private set; }
     public bool SawCreateContact { get; private set; }
+    public string LastPhoneSearch { get; private set; } = "";
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -497,6 +508,16 @@ sealed class FakeContactPhoneHandler : HttpMessageHandler
         var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
         if (path.EndsWith("/company/communicationTypes") && query.Contains("phoneFlag=true"))
             return Json("""[{"id":2,"description":"Direct"},{"id":4,"description":"Mobile"}]""");
+        if (path.EndsWith("/company/contacts") && request.Method == HttpMethod.Get && query.Contains("childConditions="))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(query, "%(\\d+)%");
+            LastPhoneSearch = match.Success ? match.Groups[1].Value : "";
+            return Json(LastPhoneSearch == "9085550100"
+                ? """[{"id":202,"firstName":"Avery","lastName":"Stone","company":{"id":101,"name":"Acme Widgets"},"communicationItems":[]}]"""
+                : "[]");
+        }
+        if (path.EndsWith("/company/companies") && request.Method == HttpMethod.Get && query.Contains("phoneNumber like"))
+            return Json(query.Contains("%9085550199%") ? """[{"id":101,"name":"Acme Widgets","phoneNumber":"9085550199"}]""" : "[]");
         if (path.EndsWith("/company/contacts") && request.Method == HttpMethod.Get && query.Contains("company/id=101"))
             return Json("""[{"id":202,"firstName":"Avery","lastName":"Stone","communicationItems":[{"type":{"name":"Direct"},"communicationType":"Phone","value":"9085550100"}]}]""");
         if (path.EndsWith("/company/contacts/202/communications") && request.Method == HttpMethod.Post)

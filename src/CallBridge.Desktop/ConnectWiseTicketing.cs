@@ -166,6 +166,10 @@ public sealed class ConnectWiseTicketing : IDisposable
     public const string SavePhoneUnavailableMessage =
         "Saving numbers to ConnectWise contacts needs the ConnectWise PSA connection. The Platform API can't update contacts yet, so add the number in ConnectWise.";
 
+    /// <summary>Live PSA lookup of a number that isn't in the local directory. Null when PSA isn't connected.</summary>
+    public async Task<ConnectWiseContactRecord?> FindByPhoneAsync(string phone, CancellationToken cancellationToken = default) =>
+        PsaConfigured && _mode != ConnectWiseTicketingMode.Platform ? await Psa.FindByPhoneAsync(phone, cancellationToken) : null;
+
     public Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default) => Psa.GetPhoneTypesAsync(cancellationToken);
     public Task<List<ConnectWiseContactSummary>> GetCompanyContactsAsync(string companyId, CancellationToken cancellationToken = default) => Psa.GetCompanyContactsAsync(companyId, cancellationToken);
     public Task AddContactPhoneAsync(string contactId, int phoneTypeId, string phone, CancellationToken cancellationToken = default) => Psa.AddContactPhoneAsync(contactId, phoneTypeId, phone, cancellationToken);

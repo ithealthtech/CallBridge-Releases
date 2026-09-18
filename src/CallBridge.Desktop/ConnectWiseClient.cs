@@ -231,6 +231,58 @@ public sealed class ConnectWiseClient : IDisposable
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
     }
 
+    /// <summary>
+    /// Finds who a phone number belongs to directly in PSA: first a contact with that number, then a company whose
+    /// main number it is. Used when the number isn't in CallBridge's local directory yet.
+    /// </summary>
+    public async Task<ConnectWiseContactRecord?> FindByPhoneAsync(string phone, CancellationToken cancellationToken = default)
+    {
+        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length == 11 && digits[0] == '1') digits = digits[1..];
+        if (digits.Length < 7) return null;
+        if (digits.Length > 10) digits = digits[^10..];
+
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            timeout.CancelAfter(ReadTimeout);
+            var conditions = Uri.EscapeDataString("inactiveFlag=false");
+            var child = Uri.EscapeDataString($"communicationItems/value like \"%{digits}%\"");
+            using var response = await _http.GetAsync($"{_apiBase}/company/contacts?conditions={conditions}&childConditions={child}&pageSize=5&fields=id,firstName,lastName,company,communicationItems", timeout.Token);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+                foreach (var contact in document.RootElement.EnumerateArray())
+                {
+                    var company = contact.TryGetProperty("company", out var node) ? node : default;
+                    var companyId = company.ValueKind == JsonValueKind.Object ? Property(company, "id") : "";
+                    var companyName = company.ValueKind == JsonValueKind.Object ? FirstNonEmpty(Property(company, "name"), Property(company, "identifier")) : "";
+                    var name = $"{Property(contact, "firstName")} {Property(contact, "lastName")}".Trim();
+                    if (long.TryParse(companyId, out _) && companyName.Length > 0 && name.Length > 0)
+                        return new(companyId, companyName, Property(contact, "id"), name, ExtractPhones(contact).ToArray());
+                }
+        }
+
+        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        {
+            timeout.CancelAfter(ReadTimeout);
+            var conditions = Uri.EscapeDataString($"phoneNumber like \"%{digits}%\" and deletedFlag=false");
+            using var response = await _http.GetAsync($"{_apiBase}/company/companies?conditions={conditions}&pageSize=2&fields=id,name,phoneNumber", timeout.Token);
+            if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+            // A main number shared by more than one company can't identify the caller.
+            if (document.RootElement.ValueKind == JsonValueKind.Array && document.RootElement.GetArrayLength() == 1)
+            {
+                var company = document.RootElement[0];
+                var id = Property(company, "id");
+                var name = Property(company, "name");
+                if (long.TryParse(id, out _) && name.Length > 0) return new(id, name, "", "", [Property(company, "phoneNumber")]);
+            }
+        }
+        return null;
+    }
+
+    private static string FirstNonEmpty(params string[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? "";
+
     /// <summary>Phone communication types (Direct, Mobile, and so on) configured in this PSA.</summary>
     public async Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default)
     {

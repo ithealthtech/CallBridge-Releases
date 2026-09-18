@@ -751,6 +751,21 @@ public sealed class SipSoftphone : IAsyncDisposable
 
     private async Task HandleTransportRequestAsync(SIPEndPoint localEndPoint, SIPEndPoint remoteEndPoint, SIPRequest request)
     {
+        // The phone system checks that this extension is reachable (OPTIONS "qualify", every 60 seconds on HivePBX).
+        // Without an answer it marks the extension unreachable and stops sending calls until the next registration,
+        // which shows up as calls that never ring or ring late. Answer only the phone system.
+        if (request.Method == SIPMethodsEnum.OPTIONS)
+        {
+            if (!await IsTrustedSourceAsync(remoteEndPoint)) return;
+            try
+            {
+                var ok = SIPResponse.GetResponse(request, SIPResponseStatusCodesEnum.Ok, null);
+                ok.Header.Allow = "INVITE, ACK, CANCEL, BYE, OPTIONS, NOTIFY, REFER, INFO";
+                await _transport!.SendResponseAsync(ok);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException or System.Net.Sockets.SocketException or NullReferenceException) { }
+            return;
+        }
         var gated = request.Method == SIPMethodsEnum.NOTIFY
             || SipIncomingCallPolicy.IsInitialInvite(request.Method, request.Header.To?.ToTag, request.Header.Replaces);
         if (gated && !await IsTrustedSourceAsync(remoteEndPoint))

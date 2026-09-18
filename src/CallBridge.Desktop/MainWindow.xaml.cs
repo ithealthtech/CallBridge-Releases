@@ -166,6 +166,7 @@ public partial class MainWindow : Window
         SourceInitialized += OnSourceInitialized;
         Loaded += (_, _) => StartInBackground();
         Loaded += (_, _) => _ = CheckForUpdatesLoopAsync();
+        Loaded += (_, _) => _ = AutoSyncDirectoryLoopAsync();
         Closing += OnClosing;
     }
 
@@ -301,17 +302,28 @@ public partial class MainWindow : Window
             return new IncomingCallContext(null, null, null, [], "The caller's number was not provided.");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
         using var response = await _http.GetAsync($"{_settings.ApiBase.TrimEnd('/')}/matches?phone={Uri.EscapeDataString(number)}", timeout.Token);
         response.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
-        if (!document.RootElement.TryGetProperty("matches", out var matches) || matches.ValueKind != JsonValueKind.Array || matches.GetArrayLength() == 0)
-            return new IncomingCallContext(null, null, null, [], "This number isn't in the directory. Sync ConnectWise contacts to match callers.");
-
-        var match = matches[0];
-        var companyId = Value(match, "companyId");
-        var companyName = Value(match, "companyName");
-        var contactName = Value(match, "contactName");
+        string companyId, companyName, contactName;
+        if (document.RootElement.TryGetProperty("matches", out var matches) && matches.ValueKind == JsonValueKind.Array && matches.GetArrayLength() > 0)
+        {
+            var match = matches[0];
+            companyId = Value(match, "companyId");
+            companyName = Value(match, "companyName");
+            contactName = Value(match, "contactName");
+        }
+        else if (await FindCallerInConnectWiseAsync(number, timeout.Token) is { } live)
+        {
+            companyId = live.CompanyId;
+            companyName = live.CompanyName;
+            contactName = live.ContactName;
+        }
+        else
+        {
+            return new IncomingCallContext(null, null, null, [], "This number isn't on any ConnectWise contact or company.");
+        }
         var lastCall = await LastCallSummaryAsync(companyId, companyName, timeout.Token);
         if (!ConnectWiseTicketing.IsConfigured(_settings))
             return new IncomingCallContext(contactName, companyName, companyId, [], "Connect ConnectWise in Settings to see open tickets.", lastCall);
@@ -329,6 +341,81 @@ public partial class MainWindow : Window
             if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
             App.LogStartup($"Open ticket lookup warning: {ex.GetType().Name}");
             return new IncomingCallContext(contactName, companyName, companyId, [], "Open tickets couldn't be loaded from ConnectWise.", lastCall);
+        }
+    }
+
+    /// <summary>
+    /// Looks a number up directly in ConnectWise PSA when CallBridge's directory doesn't know it, and remembers the
+    /// match locally so the next call from it is recognized instantly.
+    /// </summary>
+    private async Task<ConnectWiseContactRecord?> FindCallerInConnectWiseAsync(string number, CancellationToken cancellationToken)
+    {
+        if (!IsCustomerPhoneNumber(number) || !ConnectWiseTicketing.IsConfigured(_settings)) return null;
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            var found = await client.FindByPhoneAsync(number, cancellationToken);
+            if (found is null) return null;
+            var contactName = found.ContactName.Length > 0 ? found.ContactName : $"{found.CompanyName} (main line)";
+            var local = new
+            {
+                companyId = found.CompanyId,
+                companyName = found.CompanyName,
+                contactId = $"cw-live-{(found.ContactId.Length > 0 ? found.ContactId : found.CompanyId)}-{new string(number.Where(char.IsDigit).ToArray())}",
+                contactName,
+                phones = new[] { number }
+            };
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_settings.ApiBase.TrimEnd('/')}/directory/contacts")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(local, JsonOptions()), Encoding.UTF8, "application/json")
+                };
+                using var saved = await _http.SendAsync(request, cancellationToken);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { }
+            return found with { ContactName = contactName };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+            App.LogStartup($"Live caller lookup warning: {ex.GetType().Name}");
+            return null;
+        }
+    }
+
+    /// <summary>Keeps the local caller directory current: syncs after startup and every 12 hours.</summary>
+    private async Task AutoSyncDirectoryLoopAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(45));
+        while (IsLoaded)
+        {
+            var due = _settings.LastDirectorySyncUtc is not { } last || DateTimeOffset.UtcNow - last > TimeSpan.FromHours(12);
+            if (due && ConnectWiseTicketing.IsConfigured(_settings) && !IsCallInProgress())
+            {
+                try
+                {
+                    using var client = new ConnectWiseTicketing(_settings);
+                    var contacts = await client.DownloadDirectoryAsync();
+                    var records = contacts.Select(contact => new { companyId = contact.CompanyId, companyName = contact.CompanyName, contactId = contact.ContactId, contactName = contact.ContactName, phones = contact.Phones }).ToList();
+                    using var request = new HttpRequestMessage(HttpMethod.Put, $"{_settings.ApiBase.TrimEnd('/')}/integrations/connectwise/directory")
+                    {
+                        Content = new StringContent(JsonSerializer.Serialize(new { records }, JsonOptions()), Encoding.UTF8, "application/json")
+                    };
+                    using var response = await _http.SendAsync(request);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        _settings.LastDirectorySyncUtc = DateTimeOffset.UtcNow;
+                        SaveSettings(apply: false);
+                        App.LogStartup($"Directory synced automatically ({contacts.Count} contacts).");
+                    }
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidDataException or JsonException or ArgumentException or InvalidOperationException)
+                {
+                    App.LogStartup($"Automatic directory sync skipped: {ex.GetType().Name}.");
+                }
+            }
+            await Task.Delay(TimeSpan.FromMinutes(30));
         }
     }
 
@@ -2079,6 +2166,7 @@ public partial class MainWindow : Window
         ConnectWisePlatformSourceId = settings.ConnectWisePlatformSourceId,
         ConnectWisePlatformSourceName = settings.ConnectWisePlatformSourceName,
         ConnectWisePlatformShowDevices = settings.ConnectWisePlatformShowDevices,
+        LastDirectorySyncUtc = settings.LastDirectorySyncUtc,
         ConnectWiseMemberIdentifier = settings.ConnectWiseMemberIdentifier,
         AdminPinHash = settings.AdminPinHash,
         AdminPinSalt = settings.AdminPinSalt,
@@ -2522,6 +2610,8 @@ public partial class MainWindow : Window
             using var response = await _http.SendAsync(request);
             if (!response.IsSuccessStatusCode) throw new HttpRequestException(await response.Content.ReadAsStringAsync());
             await DirectoryChangedAsync();
+            _settings.LastDirectorySyncUtc = DateTimeOffset.UtcNow;
+            SaveSettings(apply: false);
             ShowInlineStatus($"Synchronized {contacts.Count} ConnectWise contacts with callable phone records.");
         }
         catch (Exception ex) { ShowWarning($"ConnectWise sync failed: {ex.Message}"); }
@@ -4239,6 +4329,7 @@ public sealed class AppSettings
     public string ConnectWisePlatformSourceId { get; set; } = "";
     public string ConnectWisePlatformSourceName { get; set; } = "";
     public bool ConnectWisePlatformShowDevices { get; set; }
+    public DateTimeOffset? LastDirectorySyncUtc { get; set; }
     public string AdminPinHash { get; set; } = "";
     public string AdminPinSalt { get; set; } = "";
     public string BrandAccentColor { get; set; } = "";
