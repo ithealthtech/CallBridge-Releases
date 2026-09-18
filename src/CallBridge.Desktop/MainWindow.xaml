@@ -276,6 +276,8 @@
                                         <TextBlock x:Name="CallNumberValue" Grid.Row="2" Grid.Column="1" Text="—" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" Margin="0,0,0,4"/>
                                     </Grid>
 
+                                    <Button x:Name="SaveCallerNumberButton" Visibility="Collapsed" Content="Save number to ConnectWise" Style="{StaticResource ToolbarButton}" HorizontalAlignment="Left" Margin="0,8,0,0" ToolTip="Add this caller's number to a ConnectWise contact so future calls are recognized" AutomationProperties.Name="Save caller number to ConnectWise"/>
+
                                     <TextBlock Text="OPEN TICKETS" Style="{StaticResource SectionLabel}" Margin="0,14,0,4"/>
                                     <StackPanel x:Name="CallTicketsPanel"/>
                                     <TextBlock x:Name="CallTicketsNote" Text="Looking up the caller…" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>

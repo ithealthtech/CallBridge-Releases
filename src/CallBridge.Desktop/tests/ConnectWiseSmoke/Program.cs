@@ -147,6 +147,25 @@ catch (ArgumentException)
 {
 }
 
+// ---- Saving a caller's number to a PSA contact
+var contactHandler = new FakeContactPhoneHandler();
+using (var contactClient = new ConnectWiseClient(settings, contactHandler))
+{
+    var phoneTypes = await contactClient.GetPhoneTypesAsync();
+    Assert(phoneTypes.Count == 2 && phoneTypes[0] == new ConnectWisePhoneType(2, "Direct"), "PSA phone types should load.");
+    var companyContacts = await contactClient.GetCompanyContactsAsync("101");
+    Assert(companyContacts.Count == 1 && companyContacts[0].Id == "202" && companyContacts[0].Name == "Avery Stone", "Company contacts should load for the chosen company.");
+    await contactClient.AddContactPhoneAsync("202", 2, "+1 (732) 297-7575");
+    Assert(contactHandler.SawAddPhone, "Adding a phone should post a Phone communication with 10 digits to the contact.");
+    var newContactId = await contactClient.CreateContactAsync("101", "Sonia", "Vaidya", 2, "732-297-7575");
+    Assert(newContactId == "303" && contactHandler.SawCreateContact, "Creating a contact should include the company and the phone number.");
+    try { await contactClient.AddContactPhoneAsync("202", 2, "101"); throw new InvalidOperationException("Extensions must not be saved as customer phone numbers."); }
+    catch (ArgumentException) { }
+    try { await contactClient.GetCompanyContactsAsync("101 or 1=1"); throw new InvalidOperationException("Company IDs must be numeric."); }
+    catch (ArgumentException) { }
+}
+Assert(ConnectWiseClient.PsaPhoneValue("+44 20 7946 0958") == "442079460958", "International numbers keep their country code.");
+Assert(ConnectWiseTicketing.CanSavePhoneNumbers(settings) && !ConnectWiseTicketing.CanSavePhoneNumbers(new AppSettings { ConnectWiseTicketingMode = ConnectWiseTicketingMode.Platform }), "Saving numbers needs the PSA connection.");
 // ---- Slow PSA ticket creation: the ticket was created but the response timed out
 ConnectWiseClient.CreateTicketTimeout = TimeSpan.FromMilliseconds(300);
 var slowHandler = new SlowCreateHandler();
@@ -425,4 +444,41 @@ sealed class SlowCreateHandler : HttpMessageHandler
         SawLookup = query.Contains("company/id=101") && query.Contains("board/id=27") && query.Contains("summary=\"Phone support - Acme\"") && query.Contains("dateEntered>=[");
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""[{"id":9100,"summary":"Phone support - Acme"}]""", Encoding.UTF8, "application/json") };
     }
+}
+
+sealed class FakeContactPhoneHandler : HttpMessageHandler
+{
+    public bool SawAddPhone { get; private set; }
+    public bool SawCreateContact { get; private set; }
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var path = request.RequestUri!.AbsolutePath;
+        var query = Uri.UnescapeDataString(request.RequestUri.Query);
+        var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken);
+        if (path.EndsWith("/company/communicationTypes") && query.Contains("phoneFlag=true"))
+            return Json("""[{"id":2,"description":"Direct"},{"id":4,"description":"Mobile"}]""");
+        if (path.EndsWith("/company/contacts") && request.Method == HttpMethod.Get && query.Contains("company/id=101"))
+            return Json("""[{"id":202,"firstName":"Avery","lastName":"Stone","communicationItems":[{"type":{"name":"Direct"},"communicationType":"Phone","value":"9085550100"}]}]""");
+        if (path.EndsWith("/company/contacts/202/communications") && request.Method == HttpMethod.Post)
+        {
+            using var doc = JsonDocument.Parse(body);
+            var r = doc.RootElement;
+            SawAddPhone = r.GetProperty("value").GetString() == "7322977575" && r.GetProperty("communicationType").GetString() == "Phone" && r.GetProperty("type").GetProperty("id").GetInt32() == 2;
+            return Json("{}", HttpStatusCode.Created);
+        }
+        if (path.EndsWith("/company/contacts") && request.Method == HttpMethod.Post)
+        {
+            using var doc = JsonDocument.Parse(body);
+            var r = doc.RootElement;
+            var item = r.GetProperty("communicationItems")[0];
+            SawCreateContact = r.GetProperty("firstName").GetString() == "Sonia" && r.GetProperty("company").GetProperty("id").GetInt64() == 101
+                && item.GetProperty("value").GetString() == "7322977575" && item.GetProperty("communicationType").GetString() == "Phone";
+            return Json("""{"id":303}""", HttpStatusCode.Created);
+        }
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
+    }
+
+    private static HttpResponseMessage Json(string json, HttpStatusCode status = HttpStatusCode.OK) =>
+        new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 }

@@ -156,6 +156,22 @@ public sealed class ConnectWiseTicketing : IDisposable
         await AddTicketNoteAsync(ticketId, ConnectWisePlatformClient.TimeNoteText(memberIdentifier, start, end, notes), cancellationToken);
     }
 
+    /// <summary>
+    /// Whether a caller's number can be saved to a ConnectWise contact. Only the PSA API can update contacts;
+    /// the Platform API can create contacts but not search or edit them.
+    /// </summary>
+    public static bool CanSavePhoneNumbers(AppSettings settings) =>
+        ConnectWiseTicketingMode.Normalize(settings.ConnectWiseTicketingMode) == ConnectWiseTicketingMode.Psa && ConnectWiseClient.IsConfigured(settings);
+
+    public const string SavePhoneUnavailableMessage =
+        "Saving numbers to ConnectWise contacts needs the ConnectWise PSA connection. The Platform API can't update contacts yet, so add the number in ConnectWise.";
+
+    public Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default) => Psa.GetPhoneTypesAsync(cancellationToken);
+    public Task<List<ConnectWiseContactSummary>> GetCompanyContactsAsync(string companyId, CancellationToken cancellationToken = default) => Psa.GetCompanyContactsAsync(companyId, cancellationToken);
+    public Task AddContactPhoneAsync(string contactId, int phoneTypeId, string phone, CancellationToken cancellationToken = default) => Psa.AddContactPhoneAsync(contactId, phoneTypeId, phone, cancellationToken);
+    public Task<string> CreateContactAsync(string companyId, string firstName, string lastName, int phoneTypeId, string phone, CancellationToken cancellationToken = default) =>
+        Psa.CreateContactAsync(companyId, firstName, lastName, phoneTypeId, phone, cancellationToken);
+
     /// <summary>A browser link for the ticket, when one is known. The platform API doesn't publish ticket web links.</summary>
     public string? TicketUrl(string ticketId) => PsaConfigured && long.TryParse(ticketId, out _) ? Psa.TicketUrl(ticketId) : null;
     public string? CompanyUrl(string companyId) => PsaConfigured && long.TryParse(companyId, out _) ? Psa.CompanyUrl(companyId) : null;

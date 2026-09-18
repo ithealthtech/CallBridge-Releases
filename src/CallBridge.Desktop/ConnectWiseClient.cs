@@ -13,6 +13,14 @@ public sealed record ConnectWiseTicketSummary(string Id, string Summary, string 
     /// <summary>Human-readable ticket number: the PSA ID, or the platform ticket number (platform IDs are UUIDs).</summary>
     public string DisplayNumber => Number ?? Id;
 }
+public sealed record ConnectWisePhoneType(int Id, string Name)
+{
+    public override string ToString() => Name;
+}
+public sealed record ConnectWiseContactSummary(string Id, string Name, string[] Phones)
+{
+    public override string ToString() => Phones.Length == 0 ? Name : $"{Name} ({string.Join(", ", Phones)})";
+}
 public sealed record ConnectWiseCompanySummary(string Id, string Name)
 {
     public override string ToString() => Name;
@@ -221,6 +229,95 @@ public sealed class ConnectWiseClient : IDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(60));
         using var response = await _http.PostAsync($"{_apiBase}/time/entries", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
         if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+    }
+
+    /// <summary>Phone communication types (Direct, Mobile, and so on) configured in this PSA.</summary>
+    public async Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ReadTimeout);
+        var conditions = Uri.EscapeDataString("phoneFlag=true");
+        using var response = await _http.GetAsync($"{_apiBase}/company/communicationTypes?conditions={conditions}&pageSize=50&fields=id,description", timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected phone types response.");
+        return document.RootElement.EnumerateArray()
+            .Select(type => (Id: int.TryParse(Property(type, "id"), out var id) ? id : 0, Name: Property(type, "description")))
+            .Where(type => type.Id > 0 && type.Name.Length > 0)
+            .Select(type => new ConnectWisePhoneType(type.Id, type.Name))
+            .ToList();
+    }
+
+    /// <summary>Active contacts at a company, for choosing who a new phone number belongs to.</summary>
+    public async Task<List<ConnectWiseContactSummary>> GetCompanyContactsAsync(string companyId, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(companyId, out var numericCompanyId) || numericCompanyId <= 0)
+            throw new ArgumentException("ConnectWise company ID must be numeric.", nameof(companyId));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(ReadTimeout);
+        var conditions = Uri.EscapeDataString($"company/id={numericCompanyId} and inactiveFlag=false");
+        using var response = await _http.GetAsync($"{_apiBase}/company/contacts?conditions={conditions}&orderBy=firstName%20asc&pageSize=200&fields=id,firstName,lastName,communicationItems", timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidDataException("ConnectWise returned an unexpected contacts response.");
+        return document.RootElement.EnumerateArray()
+            .Select(contact => new ConnectWiseContactSummary(
+                Property(contact, "id"),
+                $"{Property(contact, "firstName")} {Property(contact, "lastName")}".Trim(),
+                ExtractPhones(contact).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+            .Where(contact => long.TryParse(contact.Id, out _) && contact.Name.Length > 0)
+            .ToList();
+    }
+
+    /// <summary>Adds a phone number to an existing contact.</summary>
+    public async Task AddContactPhoneAsync(string contactId, int phoneTypeId, string phone, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(contactId, out var numericContactId) || numericContactId <= 0)
+            throw new ArgumentException("ConnectWise contact ID must be numeric.", nameof(contactId));
+        var value = PsaPhoneValue(phone);
+        var payload = new { type = new { id = phoneTypeId }, value, communicationType = "Phone", defaultFlag = false };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await _http.PostAsync($"{_apiBase}/company/contacts/{numericContactId}/communications", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+    }
+
+    /// <summary>Creates a contact at a company with the given phone number; returns the new contact ID.</summary>
+    public async Task<string> CreateContactAsync(string companyId, string firstName, string lastName, int phoneTypeId, string phone, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(companyId, out var numericCompanyId) || numericCompanyId <= 0)
+            throw new ArgumentException("Choose a ConnectWise company for the contact.", nameof(companyId));
+        var first = (firstName ?? "").Trim();
+        if (first.Length is 0 or > 30) throw new ArgumentException("Enter a first name (up to 30 characters).", nameof(firstName));
+        var last = (lastName ?? "").Trim();
+        if (last.Length > 30) throw new ArgumentException("The last name can be up to 30 characters.", nameof(lastName));
+        var payload = new
+        {
+            firstName = first,
+            lastName = last,
+            company = new { id = numericCompanyId },
+            communicationItems = new[] { new { type = new { id = phoneTypeId }, value = PsaPhoneValue(phone), communicationType = "Phone", defaultFlag = true } }
+        };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var response = await _http.PostAsync($"{_apiBase}/company/contacts", new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
+        var id = Property(document.RootElement, "id");
+        if (!long.TryParse(id, out _)) throw new InvalidDataException("ConnectWise didn't return the new contact's ID.");
+        return id;
+    }
+
+    /// <summary>
+    /// Phone digits as PSA stores them: North American numbers without the leading country code 1, others as
+    /// dialed digits. Rejects extensions and anything that isn't a phone number.
+    /// </summary>
+    public static string PsaPhoneValue(string phone)
+    {
+        var digits = new string((phone ?? "").Where(char.IsDigit).ToArray());
+        if (digits.Length == 11 && digits[0] == '1') digits = digits[1..];
+        if (digits.Length is < 7 or > 15) throw new ArgumentException("That doesn't look like a customer phone number.", nameof(phone));
+        return digits;
     }
 
     public string CompanyUrl(string companyId) => $"{_siteBase}/v4_6_release/ConnectWise.aspx?locale=en_US&routeTo=Company.fv&recid={Uri.EscapeDataString(companyId)}";

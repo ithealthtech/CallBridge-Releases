@@ -482,6 +482,7 @@ public partial class MainWindow : Window
         NewCallTicketButton.Click += async (_, _) => await CreateTicketForCallAsync();
         SaveCallNoteButton.Click += async (_, _) => await SaveCallNoteAsync();
         CloseWrapUpButton.Click += (_, _) => EndWrapUp();
+        SaveCallerNumberButton.Click += async (_, _) => await SaveCurrentCallerNumberAsync();
         CallTicketPicker.SelectionChanged += (_, _) => UpdateCallNoteState();
         CallNotesText.TextChanged += (_, _) =>
         {
@@ -524,6 +525,7 @@ public partial class MainWindow : Window
         CallContactValue.Text = string.IsNullOrWhiteSpace(callerLabel) ? "Unknown caller" : callerLabel;
         CallNumberValue.Text = string.IsNullOrWhiteSpace(number) ? "—" : number;
         CallTicketsPanel.Children.Clear();
+        SaveCallerNumberButton.Visibility = Visibility.Collapsed;
         CallTicketsNote.Text = "Looking up the caller…";
         CallTicketsNote.Visibility = Visibility.Visible;
         CallQualityText.Text = "Waiting for call-quality data";
@@ -580,6 +582,7 @@ public partial class MainWindow : Window
             CallTicketsPanel.Children.Add(CallTicketRow(ticket));
         CallTicketsNote.Text = context.Tickets.Count == 0 ? context.Message ?? "No open tickets for this company." : context.Message ?? context.LastCall ?? "";
         CallTicketsNote.Visibility = string.IsNullOrWhiteSpace(CallTicketsNote.Text) ? Visibility.Collapsed : Visibility.Visible;
+        UpdateSaveCallerNumberButton();
 
         // No ticket is the default so notes and time only reach a ticket the technician chose.
         var choices = new List<CallTicketChoice> { CallTicketChoice.None };
@@ -930,6 +933,7 @@ public partial class MainWindow : Window
             case "NewTicket": await CreateTicketForSelectedContactAsync(); break;
             case "Notes": await EditSelectedCallNoteAsync(); break;
             case "TicketNote": await AddTicketNoteForSelectedRowAsync(); break;
+            case "SaveNumber": await SaveSelectedRowNumberAsync(); break;
             case "Edit": await EditSelectedContactAsync(); break;
             case "Delete": await DeleteSelectedContactAsync(); break;
         }
@@ -3548,6 +3552,129 @@ public partial class MainWindow : Window
         catch (Exception ex) { ShowWarning($"The note couldn't be saved: {ex.Message}"); }
     }
 
+    /// <summary>Shows "Save number to ConnectWise" for callers whose number isn't on any ConnectWise contact.</summary>
+    private void UpdateSaveCallerNumberButton()
+    {
+        var number = CallNumberValue.Text.Trim();
+        var matched = _callContext is { ContactName.Length: > 0 } || _callContext is { CompanyId.Length: > 0 };
+        SaveCallerNumberButton.Visibility = !matched && IsCustomerPhoneNumber(number) && ConnectWiseTicketing.IsConfigured(_settings)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    /// <summary>True for outside phone numbers; internal extensions and blanks aren't saved to customer contacts.</summary>
+    internal static bool IsCustomerPhoneNumber(string? value)
+    {
+        var digits = new string((value ?? "").Where(char.IsDigit).ToArray());
+        return digits.Length is >= 7 and <= 15;
+    }
+
+    private async Task SaveCurrentCallerNumberAsync()
+    {
+        var number = CallNumberValue.Text.Trim();
+        var caller = CallContactValue.Text is { Length: > 0 } label && label != "Unknown caller" && !IsCustomerPhoneNumber(label) ? label : "";
+        if (await SaveNumberToConnectWiseAsync(number, caller) is { } saved)
+        {
+            SaveCallerNumberButton.Visibility = Visibility.Collapsed;
+            CallContactValue.Text = saved.ContactName;
+            // Load the company's open tickets so notes and tickets work for the rest of this call or wrap-up.
+            try
+            {
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                using var client = new ConnectWiseTicketing(_settings);
+                var (tickets, companyId) = await client.GetOpenTicketsAsync(saved.CompanyId, saved.CompanyName, 5, timeout.Token);
+                ApplyCallContext(new IncomingCallContext(saved.ContactName, saved.CompanyName, companyId, tickets, null));
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+            {
+                ApplyCallContext(new IncomingCallContext(saved.ContactName, saved.CompanyName, saved.CompanyId, [], "Open tickets couldn't be loaded from ConnectWise."));
+            }
+        }
+    }
+
+    private async Task SaveSelectedRowNumberAsync()
+    {
+        if (RowsList.SelectedItem is not RowItem row) return;
+        var number = string.IsNullOrWhiteSpace(row.Destination) ? ExtractDestination(row.Detail) : row.Destination;
+        var caller = IsCustomerPhoneNumber(row.Title) ? "" : row.Title;
+        if (await SaveNumberToConnectWiseAsync(number, caller) is not null && _listTitle == RecentCallsTitle)
+            await NavigateToRowsAsync(RecentCallsTitle, "Your latest inbound, outbound, and missed calls", HistoryRowsAsync);
+    }
+
+    private sealed record SavedCallerNumber(string CompanyId, string CompanyName, string ContactId, string ContactName);
+
+    /// <summary>
+    /// Adds a caller's number to an existing ConnectWise contact, or creates a contact with it, then adds it to
+    /// CallBridge's directory so the next call from that number is recognized right away.
+    /// </summary>
+    private async Task<SavedCallerNumber?> SaveNumberToConnectWiseAsync(string number, string callerName)
+    {
+        if (!IsCustomerPhoneNumber(number)) { ShowWarning("Only outside phone numbers can be saved to a ConnectWise contact."); return null; }
+        if (!ConnectWiseTicketing.CanSavePhoneNumbers(_settings)) { ShowWarning(ConnectWiseTicketing.SavePhoneUnavailableMessage); return null; }
+
+        List<ConnectWisePhoneType> phoneTypes;
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            phoneTypes = await client.GetPhoneTypesAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidDataException or JsonException)
+        {
+            ShowWarning($"ConnectWise phone types couldn't be loaded: {ex.Message}");
+            return null;
+        }
+        if (phoneTypes.Count == 0) { ShowWarning("ConnectWise has no phone communication types set up."); return null; }
+
+        var editor = new SavePhoneWindow(number, callerName, phoneTypes, SearchCompaniesAsync, async companyId =>
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            return await client.GetCompanyContactsAsync(companyId);
+        }) { Owner = this };
+        if (editor.ShowDialog() != true) return null;
+
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            string contactId;
+            string contactName;
+            if (editor.ExistingContact is { } existing)
+            {
+                await client.AddContactPhoneAsync(existing.Id, editor.PhoneTypeId, number);
+                contactId = existing.Id;
+                contactName = existing.Name;
+            }
+            else
+            {
+                contactId = await client.CreateContactAsync(editor.CompanyId, editor.FirstName, editor.LastName, editor.PhoneTypeId, number);
+                contactName = $"{editor.FirstName} {editor.LastName}".Trim();
+            }
+
+            // A separate local entry, so the next ConnectWise sync replaces it without touching the contact's other numbers.
+            try
+            {
+                var local = new { companyId = editor.CompanyId, companyName = editor.CompanyName, contactId = $"cw-added-{contactId}-{new string(number.Where(char.IsDigit).ToArray())}", contactName, phones = new[] { number } };
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_settings.ApiBase.TrimEnd('/')}/directory/contacts")
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(local, JsonOptions()), Encoding.UTF8, "application/json")
+                };
+                using var response = await _http.SendAsync(request);
+                if (response.IsSuccessStatusCode) await DirectoryChangedAsync();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                App.LogStartup($"Local directory update after saving a number failed: {ex.GetType().Name}.");
+            }
+
+            ShowBanner($"Saved {number} to {contactName} at {editor.CompanyName}. Future calls from this number will be recognized.", GoodHex);
+            return new SavedCallerNumber(editor.CompanyId, editor.CompanyName, contactId, contactName);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            ShowWarning($"The number couldn't be saved to ConnectWise: {ex.Message}");
+            return null;
+        }
+    }
+
     private async Task EditSelectedCallNoteAsync()
     {
         if (RowsList.SelectedItem is not RowItem row || string.IsNullOrWhiteSpace(row.CallId)) { ShowWarning("Select a call first."); return; }
@@ -3966,6 +4093,9 @@ public sealed record CallTicketChoice(string Id, string Label)
 
 public sealed record RowItem(string Title, string Detail, string Action, string Destination = "", string ContactId = "", string Company = "", string CompanyId = "", string CallId = "", string Notes = "", string Outcome = "")
 {
+    /// <summary>True for outside phone numbers, which can be saved to a ConnectWise contact; false for extensions.</summary>
+    public bool IsExternalNumber => MainWindow.IsCustomerPhoneNumber(Destination);
+
     public override string ToString() => $"{Title}\n{Detail}    {Action}";
 }
 
@@ -4377,4 +4507,155 @@ public sealed class TicketNoteWindow : Window
         DialogControlMetadata.Apply(field, label);
         panel.Children.Add(field);
     }
+}
+
+/// <summary>Chooses the ConnectWise company and contact a caller's number belongs to, or a new contact.</summary>
+public sealed class SavePhoneWindow : Window
+{
+    private readonly Func<string, Task<IReadOnlyList<ConnectWiseCompanySummary>>> _searchCompanies;
+    private readonly Func<string, Task<List<ConnectWiseContactSummary>>> _loadContacts;
+    private readonly TextBox _companySearch = new() { Padding = new Thickness(8, 6, 8, 6) };
+    private readonly Button _searchButton = new() { Content = "Search", Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(8, 0, 0, 0) };
+    private readonly ListBox _companies = new() { Height = 110 };
+    private readonly ComboBox _contacts = new();
+    private readonly TextBox _firstName = new() { Padding = new Thickness(8, 6, 8, 6) };
+    private readonly TextBox _lastName = new() { Padding = new Thickness(8, 6, 8, 6) };
+    private readonly ComboBox _phoneType = new();
+    private readonly StackPanel _newContactFields = new();
+    private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly Button _save = new() { Content = "Save number", IsDefault = true, Padding = new Thickness(16, 9, 16, 9), IsEnabled = false };
+    private static readonly ConnectWiseContactSummary NewContact = new("", "New contact...", []);
+
+    public string CompanyId => (_companies.SelectedItem as ConnectWiseCompanySummary)?.Id ?? "";
+    public string CompanyName => (_companies.SelectedItem as ConnectWiseCompanySummary)?.Name ?? "";
+    public ConnectWiseContactSummary? ExistingContact => _contacts.SelectedItem is ConnectWiseContactSummary { Id.Length: > 0 } contact ? contact : null;
+    public string FirstName => _firstName.Text.Trim();
+    public string LastName => _lastName.Text.Trim();
+    public int PhoneTypeId => (_phoneType.SelectedItem as ConnectWisePhoneType)?.Id ?? 0;
+
+    public SavePhoneWindow(string number, string callerName, IReadOnlyList<ConnectWisePhoneType> phoneTypes,
+        Func<string, Task<IReadOnlyList<ConnectWiseCompanySummary>>> searchCompanies,
+        Func<string, Task<List<ConnectWiseContactSummary>>> loadContacts)
+    {
+        _searchCompanies = searchCompanies;
+        _loadContacts = loadContacts;
+        Title = "Save number to ConnectWise"; Width = 560; Height = 640; MinWidth = 440; MinHeight = 480;
+        ResizeMode = ResizeMode.CanResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        ThemeWindows.ApplyDialog(this);
+
+        foreach (var type in phoneTypes) _phoneType.Items.Add(type);
+        _phoneType.SelectedItem = phoneTypes.FirstOrDefault(type => type.Name.Contains("direct", StringComparison.OrdinalIgnoreCase))
+            ?? phoneTypes.FirstOrDefault(type => type.Name.Contains("mobile", StringComparison.OrdinalIgnoreCase))
+            ?? phoneTypes.FirstOrDefault();
+        var nameParts = (callerName ?? "").Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (nameParts.Length > 0) _firstName.Text = nameParts[0];
+        if (nameParts.Length > 1) _lastName.Text = nameParts[1];
+        _contacts.IsEnabled = false;
+
+        var stack = new StackPanel { Margin = new Thickness(26) };
+        stack.Children.Add(new TextBlock { Text = "Save this number to ConnectWise", FontSize = 22, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        stack.Children.Add(new TextBlock { Text = number, FontSize = 15, Margin = new Thickness(0, 4, 0, 14), Foreground = ThemePalette.Brush("Muted") });
+
+        AddLabel(stack, "1. Find the company");
+        var searchRow = new DockPanel();
+        DockPanel.SetDock(_searchButton, Dock.Right);
+        searchRow.Children.Add(_searchButton);
+        searchRow.Children.Add(_companySearch);
+        DialogControlMetadata.Apply(_companySearch, "Company name");
+        stack.Children.Add(searchRow);
+        _companies.Margin = new Thickness(0, 6, 0, 0);
+        DialogControlMetadata.Apply(_companies, "Matching companies");
+        stack.Children.Add(_companies);
+
+        AddLabel(stack, "2. Choose the contact");
+        DialogControlMetadata.Apply(_contacts, "Contact");
+        stack.Children.Add(_contacts);
+        _newContactFields.Visibility = Visibility.Collapsed;
+        AddLabel(_newContactFields, "First name");
+        DialogControlMetadata.Apply(_firstName, "First name");
+        _newContactFields.Children.Add(_firstName);
+        AddLabel(_newContactFields, "Last name");
+        DialogControlMetadata.Apply(_lastName, "Last name");
+        _newContactFields.Children.Add(_lastName);
+        stack.Children.Add(_newContactFields);
+
+        AddLabel(stack, "3. Phone type");
+        DialogControlMetadata.Apply(_phoneType, "Phone type");
+        stack.Children.Add(_phoneType);
+        stack.Children.Add(_status);
+
+        var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
+        var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 9, 16, 9), Margin = new Thickness(0, 0, 10, 0) };
+        _save.Background = ThemePalette.Brush("Accent");
+        _save.Foreground = Brushes.White;
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(_save);
+        foreach (var button in buttons.Children.OfType<Button>().Append(_searchButton)) DialogControlMetadata.Apply(button);
+        stack.Children.Add(buttons);
+        Content = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+
+        _searchButton.Click += async (_, _) => await SearchAsync();
+        _companySearch.KeyDown += async (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; await SearchAsync(); } };
+        _companies.SelectionChanged += async (_, _) => await LoadContactsAsync();
+        _contacts.SelectionChanged += (_, _) => UpdateState();
+        _firstName.TextChanged += (_, _) => UpdateState();
+        _phoneType.SelectionChanged += (_, _) => UpdateState();
+        _save.Click += (_, _) => { if (CanSave()) DialogResult = true; };
+        Loaded += (_, _) => _companySearch.Focus();
+    }
+
+    private async Task SearchAsync()
+    {
+        var query = _companySearch.Text.Trim();
+        if (query.Length == 0) { _status.Text = "Type part of the company name, then Search."; return; }
+        _searchButton.IsEnabled = false;
+        _status.Text = "Searching ConnectWise...";
+        try
+        {
+            var results = await _searchCompanies(query);
+            _companies.ItemsSource = results;
+            _status.Text = results.Count == 0 ? "No companies match. Try a shorter name." : "Choose the company.";
+            if (results.Count == 1) _companies.SelectedIndex = 0;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            _status.Text = $"Search failed: {ex.Message}";
+        }
+        finally { _searchButton.IsEnabled = true; }
+    }
+
+    private async Task LoadContactsAsync()
+    {
+        _contacts.ItemsSource = null;
+        _contacts.IsEnabled = false;
+        UpdateState();
+        if (CompanyId.Length == 0) return;
+        _status.Text = $"Loading contacts for {CompanyName}...";
+        try
+        {
+            var contacts = await _loadContacts(CompanyId);
+            var choices = new List<ConnectWiseContactSummary>(contacts) { NewContact };
+            _contacts.ItemsSource = choices;
+            _contacts.IsEnabled = true;
+            _contacts.SelectedItem = NewContact;
+            _status.Text = contacts.Count == 0 ? "This company has no contacts yet. A new contact will be created." : "Choose who this number belongs to, or add a new contact.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            _status.Text = $"Contacts couldn't be loaded: {ex.Message}";
+        }
+        UpdateState();
+    }
+
+    private bool CanSave() =>
+        CompanyId.Length > 0 && PhoneTypeId > 0 && _contacts.SelectedItem is not null && (ExistingContact is not null || FirstName.Length > 0);
+
+    private void UpdateState()
+    {
+        _newContactFields.Visibility = _contacts.SelectedItem is ConnectWiseContactSummary { Id.Length: 0 } ? Visibility.Visible : Visibility.Collapsed;
+        _save.IsEnabled = CanSave();
+    }
+
+    private static void AddLabel(Panel panel, string text) =>
+        panel.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = ThemePalette.Brush("Muted"), Margin = new Thickness(0, 12, 0, 5) });
 }

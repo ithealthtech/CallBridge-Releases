@@ -483,6 +483,18 @@
                         </Style>
                     </Button.Style>
                 </Button>
+                <Button Tag="SaveNumber" Content="Save number" AutomationProperties.Name="Save this number to a ConnectWise contact" ToolTip="Add this number to a ConnectWise contact so future calls are recognized">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource RowActionButton}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CompanyId}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger>
+                                <DataTrigger Binding="{Binding CallId}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                                <DataTrigger Binding="{Binding IsExternalNumber}" Value="False"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <Button Tag="TicketNote" Content="Add note" AutomationProperties.Name="Add a note to a ConnectWise ticket" ToolTip="Add a note to one of this company's ConnectWise tickets">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource RowActionButton}">

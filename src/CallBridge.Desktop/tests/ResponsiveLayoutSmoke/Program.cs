@@ -655,6 +655,17 @@ internal static class Program
         var callTags = FindVisualChildren<Button>(callRow).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Tag as string).ToList();
         if (!callTags.Contains("Notes") || callTags.Contains("OpenCompany") || callTags.Contains("Edit"))
             throw new InvalidOperationException("Call rows should offer Notes but not company or contact actions when those are unknown.");
+        if (callTags.Contains("SaveNumber"))
+            throw new InvalidOperationException("Calls with an internal extension should not offer Save number.");
+        var unknownCall = new RowItem("(732) 297-7575", "Inbound - connected", "Call", "7322977575", CallId: "call-3");
+        ShowRows(window, "Recent calls", unknownCall);
+        rowsList.SelectedItem = unknownCall;
+        window.UpdateLayout();
+        DrainDispatcher(window.Dispatcher);
+        var unknownRow = rowsList.ItemContainerGenerator.ContainerFromItem(unknownCall) as ListBoxItem
+            ?? throw new InvalidOperationException("The unrecognized caller row was not rendered.");
+        if (!FindVisualChildren<Button>(unknownRow).Any(button => button.Visibility == Visibility.Visible && Equals(button.Tag, "SaveNumber")))
+            throw new InvalidOperationException("A call from an unrecognized outside number should offer Save number.");
         if (callTags.Contains("TicketNote"))
             throw new InvalidOperationException("Rows with no ConnectWise company should not offer a ticket note.");
 
@@ -667,6 +678,8 @@ internal static class Program
         var companyRow = rowsList.ItemContainerGenerator.ContainerFromItem(companyCall) as ListBoxItem
             ?? throw new InvalidOperationException("The company call row was not rendered.");
         var companyTags = FindVisualChildren<Button>(companyRow).Where(button => button.Visibility == Visibility.Visible).Select(button => button.Tag as string).ToList();
+        if (companyTags.Contains("SaveNumber"))
+            throw new InvalidOperationException("A call already matched to a company should not offer Save number.");
         foreach (var expected in new[] { "TicketNote", "Notes", "OpenCompany" })
             if (!companyTags.Contains(expected))
                 throw new InvalidOperationException($"A past call for a known company should offer the {expected} action.");
@@ -682,6 +695,12 @@ internal static class Program
                 throw new InvalidOperationException($"The ticket note dialog should offer {expected}.");
         if (noteDialog.TicketId != "48213" || noteDialog.TicketNumber != "48213")
             throw new InvalidOperationException("The ticket note dialog should preselect the newest open ticket.");
+        var phoneDialog = new SavePhoneWindow("+1 732 297 7575", "Sonia Vaidya", [new ConnectWisePhoneType(4, "Mobile"), new ConnectWisePhoneType(2, "Direct")],
+            _ => Task.FromResult<IReadOnlyList<ConnectWiseCompanySummary>>([]), _ => Task.FromResult(new List<ConnectWiseContactSummary>()));
+        if (phoneDialog.PhoneTypeId != 2 || phoneDialog.FirstName != "Sonia" || phoneDialog.LastName != "Vaidya")
+            throw new InvalidOperationException("Save number should default to the Direct phone type and prefill the caller's name.");
+        if (LogicalButtons(phoneDialog).First(button => Equals(button.Content, "Save number")).IsEnabled)
+            throw new InvalidOperationException("Save number must stay disabled until a company is chosen.");
         var emptyDialog = new TicketNoteWindow("Blue Ridge Dental", "Dana Mercer", []);
         if (emptyDialog.TicketId.Length != 0)
             throw new InvalidOperationException("With no open tickets, no ticket should be selected.");
