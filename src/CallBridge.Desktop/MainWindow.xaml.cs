@@ -309,7 +309,9 @@ public partial class MainWindow : Window
         string companyId, companyName, contactName;
         if (document.RootElement.TryGetProperty("matches", out var matches) && matches.ValueKind == JsonValueKind.Array && matches.GetArrayLength() > 0)
         {
-            var match = matches[0];
+            // A number can be on several entries (a hand-added contact and the same person synced from ConnectWise).
+            // Prefer the one linked to a real ConnectWise company so tickets, notes, and devices work.
+            var match = BestDirectoryMatch(matches);
             companyId = Value(match, "companyId");
             companyName = Value(match, "companyName");
             contactName = Value(match, "contactName");
@@ -418,6 +420,13 @@ public partial class MainWindow : Window
             await Task.Delay(TimeSpan.FromMinutes(30));
         }
     }
+
+    /// <summary>Picks the directory match linked to a ConnectWise company, then one synced from ConnectWise, then the first.</summary>
+    internal static JsonElement BestDirectoryMatch(JsonElement matches) =>
+        matches.EnumerateArray()
+            .OrderByDescending(match => ConnectWiseClient.IsCompanyId(Value(match, "companyId")))
+            .ThenByDescending(match => Value(match, "source").StartsWith("connectwise", StringComparison.OrdinalIgnoreCase))
+            .First();
 
     /// <summary>Describes the most recent earlier call with the same company, from local call history.</summary>
     private async Task<string?> LastCallSummaryAsync(string companyId, string companyName, CancellationToken cancellationToken)
@@ -3958,6 +3967,17 @@ public partial class MainWindow : Window
         if (!IsCustomerPhoneNumber(number)) { ShowWarning("Only outside phone numbers can be saved to a ConnectWise contact."); return null; }
         if (!ConnectWiseTicketing.CanSavePhoneNumbers(_settings)) { ShowWarning(ConnectWiseTicketing.SavePhoneUnavailableMessage); return null; }
 
+        // Already in ConnectWise? Link it locally instead of adding a duplicate (PSA rejects a second number of the same type).
+        using (var lookup = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+        {
+            if (await FindCallerInConnectWiseAsync(number, lookup.Token) is { } existingOwner)
+            {
+                await DirectoryChangedAsync();
+                ShowBanner($"{number} is already in ConnectWise on {existingOwner.ContactName} at {existingOwner.CompanyName}. CallBridge now recognizes it.", GoodHex);
+                return new SavedCallerNumber(existingOwner.CompanyId, existingOwner.CompanyName, existingOwner.ContactId, existingOwner.ContactName);
+            }
+        }
+
         List<ConnectWisePhoneType> phoneTypes;
         try
         {
@@ -3985,7 +4005,8 @@ public partial class MainWindow : Window
             string contactName;
             if (editor.ExistingContact is { } existing)
             {
-                await client.AddContactPhoneAsync(existing.Id, editor.PhoneTypeId, number);
+                if (editor.ReplacesItem is { } replaced) await client.ReplaceContactPhoneAsync(existing.Id, replaced.ItemId, number);
+                else await client.AddContactPhoneAsync(existing.Id, editor.PhoneTypeId, number);
                 contactId = existing.Id;
                 contactName = existing.Name;
             }
@@ -5091,7 +5112,38 @@ public sealed class SavePhoneWindow : Window
     public ConnectWiseContactSummary? ExistingContact => _contacts.SelectedItem is ConnectWiseContactSummary { Id.Length: > 0 } contact ? contact : null;
     public string FirstName => _firstName.Text.Trim();
     public string LastName => _lastName.Text.Trim();
-    public int PhoneTypeId => (_phoneType.SelectedItem as ConnectWisePhoneType)?.Id ?? 0;
+    public int PhoneTypeId => (_phoneType.SelectedItem as PhoneTypeOption)?.Type.Id ?? 0;
+
+    /// <summary>The contact's existing number under the chosen type, when saving will replace it instead of adding one.</summary>
+    public ContactPhoneItem? ReplacesItem => (_phoneType.SelectedItem as PhoneTypeOption)?.Existing;
+
+    private sealed record PhoneTypeOption(ConnectWisePhoneType Type, ContactPhoneItem? Existing)
+    {
+        public override string ToString() => Existing is null ? Type.Name : $"{Type.Name} (replaces {Existing.Value})";
+    }
+
+    private readonly IReadOnlyList<ConnectWisePhoneType> _allPhoneTypes;
+
+    /// <summary>
+    /// PSA allows one number per type on a contact. Free types are listed first and one of them is chosen; types the
+    /// contact already uses are still offered, labelled with the number they'd replace.
+    /// </summary>
+    private void RefreshPhoneTypes()
+    {
+        var used = ExistingContact?.PhoneItems ?? [];
+        var options = _allPhoneTypes
+            .Select(type => new PhoneTypeOption(type, used.FirstOrDefault(item => item.TypeId == type.Id)))
+            .OrderBy(option => option.Existing is null ? 0 : 1)
+            .ToList();
+        var previous = (_phoneType.SelectedItem as PhoneTypeOption)?.Type.Id;
+        _phoneType.Items.Clear();
+        foreach (var option in options) _phoneType.Items.Add(option);
+        _phoneType.SelectedItem = options.FirstOrDefault(option => option.Existing is null && option.Type.Id == previous)
+            ?? options.FirstOrDefault(option => option.Existing is null && option.Type.Name.Contains("mobile", StringComparison.OrdinalIgnoreCase))
+            ?? options.FirstOrDefault(option => option.Existing is null && option.Type.Name.Contains("direct", StringComparison.OrdinalIgnoreCase))
+            ?? options.FirstOrDefault(option => option.Existing is null)
+            ?? options.FirstOrDefault();
+    }
 
     public SavePhoneWindow(string number, string callerName, IReadOnlyList<ConnectWisePhoneType> phoneTypes,
         Func<string, Task<IReadOnlyList<ConnectWiseCompanySummary>>> searchCompanies,
@@ -5103,10 +5155,8 @@ public sealed class SavePhoneWindow : Window
         ResizeMode = ResizeMode.CanResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ThemeWindows.ApplyDialog(this);
 
-        foreach (var type in phoneTypes) _phoneType.Items.Add(type);
-        _phoneType.SelectedItem = phoneTypes.FirstOrDefault(type => type.Name.Contains("direct", StringComparison.OrdinalIgnoreCase))
-            ?? phoneTypes.FirstOrDefault(type => type.Name.Contains("mobile", StringComparison.OrdinalIgnoreCase))
-            ?? phoneTypes.FirstOrDefault();
+        _allPhoneTypes = phoneTypes;
+        RefreshPhoneTypes();
         var nameParts = (callerName ?? "").Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (nameParts.Length > 0) _firstName.Text = nameParts[0];
         if (nameParts.Length > 1) _lastName.Text = nameParts[1];
@@ -5157,7 +5207,7 @@ public sealed class SavePhoneWindow : Window
         _searchButton.Click += async (_, _) => await SearchAsync();
         _companySearch.KeyDown += async (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) { e.Handled = true; await SearchAsync(); } };
         _companies.SelectionChanged += async (_, _) => await LoadContactsAsync();
-        _contacts.SelectionChanged += (_, _) => UpdateState();
+        _contacts.SelectionChanged += (_, _) => { RefreshPhoneTypes(); UpdateState(); };
         _firstName.TextChanged += (_, _) => UpdateState();
         _phoneType.SelectionChanged += (_, _) => UpdateState();
         _save.Click += (_, _) => { if (CanSave()) DialogResult = true; };
@@ -5213,6 +5263,7 @@ public sealed class SavePhoneWindow : Window
     private void UpdateState()
     {
         _newContactFields.Visibility = _contacts.SelectedItem is ConnectWiseContactSummary { Id.Length: 0 } ? Visibility.Visible : Visibility.Collapsed;
+        _save.Content = ReplacesItem is { } replaced ? $"Replace {replaced.TypeName}" : "Save number";
         _save.IsEnabled = CanSave();
     }
 

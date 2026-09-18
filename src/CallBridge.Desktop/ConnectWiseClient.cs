@@ -26,8 +26,12 @@ public sealed record ConnectWisePhoneType(int Id, string Name)
 {
     public override string ToString() => Name;
 }
+/// <summary>A phone number already on a contact. PSA allows one number per communication type on a contact.</summary>
+public sealed record ContactPhoneItem(string ItemId, int TypeId, string TypeName, string Value);
+
 public sealed record ConnectWiseContactSummary(string Id, string Name, string[] Phones)
 {
+    public IReadOnlyList<ContactPhoneItem> PhoneItems { get; init; } = [];
     public override string ToString() => Phones.Length == 0 ? Name : $"{Name} ({string.Join(", ", Phones)})";
 }
 public sealed record ConnectWiseCompanySummary(string Id, string Name)
@@ -410,9 +414,42 @@ public sealed class ConnectWiseClient : IDisposable
             .Select(contact => new ConnectWiseContactSummary(
                 Property(contact, "id"),
                 $"{Property(contact, "firstName")} {Property(contact, "lastName")}".Trim(),
-                ExtractPhones(contact).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+                ExtractPhones(contact).Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
+            { PhoneItems = ExtractPhoneItems(contact) })
             .Where(contact => long.TryParse(contact.Id, out _) && contact.Name.Length > 0)
             .ToList();
+    }
+
+    /// <summary>Every communication item on a contact with its type, so a new number can avoid a type that's taken.</summary>
+    private static List<ContactPhoneItem> ExtractPhoneItems(JsonElement contact)
+    {
+        var items = new List<ContactPhoneItem>();
+        if (!contact.TryGetProperty("communicationItems", out var list) || list.ValueKind != JsonValueKind.Array) return items;
+        foreach (var item in list.EnumerateArray())
+        {
+            var type = item.TryGetProperty("type", out var typeNode) && typeNode.ValueKind == JsonValueKind.Object ? typeNode : default;
+            var typeId = type.ValueKind == JsonValueKind.Object && int.TryParse(Property(type, "id"), out var parsed) ? parsed : 0;
+            if (typeId > 0) items.Add(new ContactPhoneItem(Property(item, "id"), typeId, type.ValueKind == JsonValueKind.Object ? Property(type, "name") : "", Property(item, "value")));
+        }
+        return items;
+    }
+
+    /// <summary>Replaces the number stored under one of a contact's existing phone types.</summary>
+    public async Task ReplaceContactPhoneAsync(string contactId, string itemId, string phone, CancellationToken cancellationToken = default)
+    {
+        if (!long.TryParse(contactId, out var numericContactId) || numericContactId <= 0)
+            throw new ArgumentException("ConnectWise contact ID must be numeric.", nameof(contactId));
+        if (!long.TryParse(itemId, out var numericItemId) || numericItemId <= 0)
+            throw new ArgumentException("The contact's existing phone entry couldn't be identified.", nameof(itemId));
+        var operations = new[] { new { op = "replace", path = "value", value = PsaPhoneValue(phone) } };
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"{_apiBase}/company/contacts/{numericContactId}/communications/{numericItemId}")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(operations), Encoding.UTF8, "application/json")
+        };
+        using var response = await _http.SendAsync(request, timeout.Token);
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(await ErrorAsync(response));
     }
 
     /// <summary>Adds a phone number to an existing contact.</summary>

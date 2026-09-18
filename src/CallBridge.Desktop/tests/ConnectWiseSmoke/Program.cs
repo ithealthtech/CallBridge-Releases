@@ -155,6 +155,9 @@ using (var contactClient = new ConnectWiseClient(settings, contactHandler))
     Assert(phoneTypes.Count == 2 && phoneTypes[0] == new ConnectWisePhoneType(2, "Direct"), "PSA phone types should load.");
     var companyContacts = await contactClient.GetCompanyContactsAsync("101");
     Assert(companyContacts.Count == 1 && companyContacts[0].Id == "202" && companyContacts[0].Name == "Avery Stone", "Company contacts should load for the chosen company.");
+    Assert(companyContacts[0].PhoneItems.Count == 1 && companyContacts[0].PhoneItems[0] is { ItemId: "9001", TypeId: 2, TypeName: "Direct", Value: "9085550100" }, "Each contact number should keep its type and item ID so a taken type can be replaced.");
+    await contactClient.ReplaceContactPhoneAsync("202", "9001", "732-297-7575");
+    Assert(contactHandler.SawReplacePhone, "Replacing should PATCH the existing communication item's value.");
     await contactClient.AddContactPhoneAsync("202", 2, "+1 (732) 297-7575");
     Assert(contactHandler.SawAddPhone, "Adding a phone should post a Phone communication with 10 digits to the contact.");
     var newContactId = await contactClient.CreateContactAsync("101", "Sonia", "Vaidya", 2, "732-297-7575");
@@ -531,6 +534,7 @@ sealed class FakeContactPhoneHandler : HttpMessageHandler
     public bool SawAddPhone { get; private set; }
     public bool SawCreateContact { get; private set; }
     public string LastPhoneSearch { get; private set; } = "";
+    public bool SawReplacePhone { get; private set; }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
@@ -550,7 +554,12 @@ sealed class FakeContactPhoneHandler : HttpMessageHandler
         if (path.EndsWith("/company/companies") && request.Method == HttpMethod.Get && query.Contains("phoneNumber like"))
             return Json(query.Contains("%9085550199%") ? """[{"id":101,"name":"Acme Widgets","phoneNumber":"9085550199"}]""" : "[]");
         if (path.EndsWith("/company/contacts") && request.Method == HttpMethod.Get && query.Contains("company/id=101"))
-            return Json("""[{"id":202,"firstName":"Avery","lastName":"Stone","communicationItems":[{"type":{"name":"Direct"},"communicationType":"Phone","value":"9085550100"}]}]""");
+            return Json("""[{"id":202,"firstName":"Avery","lastName":"Stone","communicationItems":[{"id":9001,"type":{"id":2,"name":"Direct"},"communicationType":"Phone","value":"9085550100"}]}]""");
+        if (path.EndsWith("/company/contacts/202/communications/9001") && request.Method == HttpMethod.Patch)
+        {
+            SawReplacePhone = body == """[{"op":"replace","path":"value","value":"7322977575"}]""";
+            return Json("{}");
+        }
         if (path.EndsWith("/company/contacts/202/communications") && request.Method == HttpMethod.Post)
         {
             using var doc = JsonDocument.Parse(body);

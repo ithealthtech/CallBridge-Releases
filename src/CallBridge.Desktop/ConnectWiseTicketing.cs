@@ -206,6 +206,7 @@ public sealed class ConnectWiseTicketing : IDisposable
     public Task<List<ConnectWisePhoneType>> GetPhoneTypesAsync(CancellationToken cancellationToken = default) => Psa.GetPhoneTypesAsync(cancellationToken);
     public Task<List<ConnectWiseContactSummary>> GetCompanyContactsAsync(string companyId, CancellationToken cancellationToken = default) => Psa.GetCompanyContactsAsync(companyId, cancellationToken);
     public Task AddContactPhoneAsync(string contactId, int phoneTypeId, string phone, CancellationToken cancellationToken = default) => Psa.AddContactPhoneAsync(contactId, phoneTypeId, phone, cancellationToken);
+    public Task ReplaceContactPhoneAsync(string contactId, string itemId, string phone, CancellationToken cancellationToken = default) => Psa.ReplaceContactPhoneAsync(contactId, itemId, phone, cancellationToken);
     public Task<string> CreateContactAsync(string companyId, string firstName, string lastName, int phoneTypeId, string phone, CancellationToken cancellationToken = default) =>
         Psa.CreateContactAsync(companyId, firstName, lastName, phoneTypeId, phone, cancellationToken);
 

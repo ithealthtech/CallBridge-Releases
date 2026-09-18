@@ -703,8 +703,17 @@ internal static class Program
             throw new InvalidOperationException("The ticket note dialog should preselect the newest open ticket.");
         var phoneDialog = new SavePhoneWindow("+1 732 297 7575", "Sonia Vaidya", [new ConnectWisePhoneType(4, "Mobile"), new ConnectWisePhoneType(2, "Direct")],
             _ => Task.FromResult<IReadOnlyList<ConnectWiseCompanySummary>>([]), _ => Task.FromResult(new List<ConnectWiseContactSummary>()));
-        if (phoneDialog.PhoneTypeId != 2 || phoneDialog.FirstName != "Sonia" || phoneDialog.LastName != "Vaidya")
-            throw new InvalidOperationException("Save number should default to the Direct phone type and prefill the caller's name.");
+        if (phoneDialog.PhoneTypeId != 4 || phoneDialog.FirstName != "Sonia" || phoneDialog.LastName != "Vaidya")
+            throw new InvalidOperationException("Save number should default to the Mobile phone type for a new number and prefill the caller's name.");
+
+        // Best directory match: a ConnectWise-linked entry beats a hand-added one for the same number.
+        var bestMatch = typeof(MainWindow).GetMethod("BestDirectoryMatch", BindingFlags.Static | BindingFlags.NonPublic)!;
+        using (var matchesDoc = System.Text.Json.JsonDocument.Parse("""[{"companyId":"managed-company-synergy","contactName":"Leigh Dugo","source":"user-managed"},{"companyId":"19305","contactName":"Leigh Dugo","source":"connectwise-psa"}]"""))
+        {
+            var picked = (System.Text.Json.JsonElement)bestMatch.Invoke(null, [matchesDoc.RootElement])!;
+            if (picked.GetProperty("companyId").GetString() != "19305")
+                throw new InvalidOperationException("The ConnectWise-linked directory entry should win over a hand-added duplicate.");
+        }
         if (LogicalButtons(phoneDialog).First(button => Equals(button.Content, "Save number")).IsEnabled)
             throw new InvalidOperationException("Save number must stay disabled until a company is chosen.");
         // Right-click menu: actions depend on what the row is.
