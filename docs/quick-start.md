@@ -18,6 +18,7 @@ technician.
 [8. Admin PIN](#8-protect-admin-settings-admin) ·
 [9. Test call](#9-make-a-test-call-everyone) ·
 [Day to day](#using-callbridge-day-to-day) ·
+[Shortcuts](#right-click-shortcuts) ·
 [Wrap-up](#wrap-up-notes-after-the-call-ends) ·
 [Updates](#updates) ·
 [Checklist](#setup-checklist)
@@ -234,6 +235,22 @@ time entries are logged under it.
 | **Check voicemail** | The Voicemail card on Home shows new messages. Click **Call** to listen. |
 | **Log time** | After a call with a ticket picked, adjust the minutes and click **Save time**. |
 | **Hide CallBridge** | Close the window. It keeps running in the tray and still rings. Right-click the tray icon to quit. |
+
+## Right-click shortcuts
+
+Right-click any contact or recent call on Home. Only the actions that fit that row appear, and
+the shortcuts also work on the selected row without opening the menu.
+
+| Menu item | Shortcut | What it does |
+| --- | --- | --- |
+| **Show customer card** | `Ctrl+I` | The caller pop-up without a call: contact, company, open tickets, devices, with **Call** and **Close**. |
+| **Call** | `Enter` | Dials the number. |
+| **Open tickets ▸** | `Ctrl+T` | The company's open tickets; click one to open it in ConnectWise. |
+| **Devices ▸** | `Ctrl+D` | The company's devices with online status, the caller's own marked ★. Click to copy the name. |
+| **New ticket** | `Ctrl+N` | Creates a ticket for the company. |
+| **Add note to a ticket** | `Ctrl+Shift+N` | Writes a note on one of the company's open tickets. |
+| **Save number to ConnectWise** | | For callers that aren't recognized. |
+| **Copy number** | `Ctrl+Shift+C` | Plus **Copy company name**, **Call notes**, **Open company in ConnectWise**, and **Edit / Delete contact**. |
 
 ## Wrap-up: notes after the call ends
 

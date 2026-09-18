@@ -36,6 +36,7 @@ for updates. The application source code is kept in a private repository.
 - **Time you confirm.** A time entry draft appears after each call, ready to check and save.
 - **Voicemail and parking.** Message count and park-slot status on the Home screen.
 - **Transfers.** Blind or consult-first.
+- **Right-click shortcuts.** Customer card, open tickets, devices, new ticket, add note, and copy, each with a keyboard shortcut.
 - **Your branding.** Your logo and accent color, with an admin PIN on phone and ConnectWise settings.
 - **Automatic updates.** A badge appears when a new version is ready; nothing installs during a call.
 
