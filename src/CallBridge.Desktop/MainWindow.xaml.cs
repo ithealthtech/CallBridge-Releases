@@ -93,6 +93,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _callerLookupCts;
     private CancellationTokenSource? _callContextCts;
     private Task<IncomingCallContext>? _callContextTask;
+    private Task<CallerDevices?>? _callDevicesTask;
     private IncomingCallContext? _callContext;
     private DateTimeOffset? _callConnectedAt;
     private string _lastSavedNote = "";
@@ -287,6 +288,11 @@ public partial class MainWindow : Window
             context = new IncomingCallContext(null, null, null, [], "Caller lookup is unavailable right now.");
         }
         if (!cancellationToken.IsCancellationRequested && ReferenceEquals(_incomingCallWindow, window)) window.SetContext(context);
+        if (_callDevicesTask is { } devicesTask)
+        {
+            var devices = await devicesTask;
+            if (!cancellationToken.IsCancellationRequested && ReferenceEquals(_incomingCallWindow, window)) window.SetDevices(devices);
+        }
     }
 
     private async Task<IncomingCallContext> LookupCallerAsync(string number, CancellationToken cancellationToken)
@@ -536,6 +542,9 @@ public partial class MainWindow : Window
         TransferTargetText.Clear();
         UpdateCallNoteState();
         _callContextTask = LookupCallerSafelyAsync(number, source.Token);
+        _callDevicesTask = LoadCallerDevicesAsync(_callContextTask, source.Token);
+        CallDevicesSection.Visibility = Visibility.Collapsed;
+        CallDevicesPanel.Children.Clear();
         _ = ApplyCallContextWhenReadyAsync(_callContextTask, source.Token);
     }
 
@@ -562,9 +571,56 @@ public partial class MainWindow : Window
         {
             var context = await lookup;
             if (!cancellationToken.IsCancellationRequested) ApplyCallContext(context);
+            if (_callDevicesTask is { } devicesTask)
+            {
+                var devices = await devicesTask;
+                if (!cancellationToken.IsCancellationRequested) ShowCallDevices(devices);
+            }
         }
         catch (OperationCanceledException) { }
     }
+
+    /// <summary>Loads the caller's company devices once the caller is identified. Never throws; failures become a note.</summary>
+    private async Task<CallerDevices?> LoadCallerDevicesAsync(Task<IncomingCallContext> lookup, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var context = await lookup;
+            if (!ConnectWiseTicketing.CanShowDevices(_settings) || !ConnectWiseClient.IsCompanyId(context.CompanyId)) return null;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            using var client = new ConnectWiseTicketing(_settings);
+            return await client.GetCallerDevicesAsync(context.CompanyId!, context.CompanyName, context.ContactName, 6, timeout.Token);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException)
+        {
+            App.LogStartup($"Device lookup warning: {ex.GetType().Name}");
+            var forbidden = ex is HttpRequestException && ex.Message.Contains("403", StringComparison.Ordinal);
+            return new CallerDevices([], forbidden
+                ? "Devices aren't available: the ConnectWise Platform API access needs the Devices - Read permission."
+                : "Devices couldn't be loaded from ConnectWise.", 0);
+        }
+    }
+
+    private void ShowCallDevices(CallerDevices? devices)
+    {
+        CallDevicesPanel.Children.Clear();
+        if (devices is null || (devices.Devices.Count == 0 && string.IsNullOrWhiteSpace(devices.Message)))
+        {
+            CallDevicesSection.Visibility = Visibility.Collapsed;
+            return;
+        }
+        CallDevicesSection.Visibility = Visibility.Visible;
+        CallDevicesLabel.Text = devices.Total > devices.Devices.Count ? $"DEVICES · {devices.Devices.Count} OF {devices.Total}" : "DEVICES";
+        foreach (var device in devices.Devices) CallDevicesPanel.Children.Add(IncomingCallWindow.DeviceRow(device, this));
+        CallDevicesNote.Text = devices.Message ?? "";
+        CallDevicesNote.Visibility = string.IsNullOrWhiteSpace(devices.Message) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
 
     private void ApplyCallContext(IncomingCallContext context, string? selectTicketId = null)
     {
@@ -1246,6 +1302,7 @@ public partial class MainWindow : Window
             SettingsCwPlatformSecret.Password = _settings.ConnectWisePlatformClientSecret;
             SettingsCwPlatformScopesText.Text = _settings.ConnectWisePlatformScopes;
             SettingsCwModeBox.SelectedValue = ConnectWiseTicketingMode.Normalize(_settings.ConnectWiseTicketingMode);
+            SettingsCwShowDevicesCheckBox.IsChecked = _settings.ConnectWisePlatformShowDevices;
             SetPlatformLookupChoices(SettingsCwPlatformBoardBox, [], _settings.ConnectWisePlatformBoardId, _settings.ConnectWisePlatformBoardName);
             SetPlatformLookupChoices(SettingsCwPlatformSourceBox, [], _settings.ConnectWisePlatformSourceId, _settings.ConnectWisePlatformSourceName);
             UpdateConnectWiseModeHelp();
@@ -1702,7 +1759,12 @@ public partial class MainWindow : Window
         var platformBase = SettingsCwPlatformBaseBox.Text.Trim();
         var platformClientId = SettingsCwPlatformClientIdText.Text.Trim();
         var platformSecret = SettingsCwPlatformSecret.Password;
-        var platformScopes = SettingsCwPlatformScopesText.Text.Trim();
+        var showDevices = SettingsCwShowDevicesCheckBox.IsChecked == true;
+        // Device lookups need their own permission; keep the scope list in step with the checkbox.
+        var scopeList = SettingsCwPlatformScopesText.Text.Split([' ', ',', ';', '\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries).ToList();
+        scopeList.RemoveAll(scope => scope == ConnectWisePlatformClient.DevicesScope);
+        if (showDevices) scopeList.Add(ConnectWisePlatformClient.DevicesScope);
+        var platformScopes = string.Join(' ', scopeList.Distinct(StringComparer.Ordinal));
         var platformChanged = !string.Equals(candidate.ConnectWisePlatformBaseUrl, platformBase, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(candidate.ConnectWisePlatformClientId, platformClientId, StringComparison.Ordinal)
             || !string.Equals(candidate.ConnectWisePlatformClientSecret, platformSecret, StringComparison.Ordinal)
@@ -1746,6 +1808,8 @@ public partial class MainWindow : Window
         candidate.ConnectWisePlatformClientSecret = platformSecret;
         candidate.ConnectWisePlatformScopes = platformScopes;
         candidate.ConnectWiseTicketingMode = ConnectWiseTicketingMode.Normalize(SettingsCwModeBox.SelectedValue as string);
+        candidate.ConnectWisePlatformShowDevices = showDevices;
+        SettingsCwPlatformScopesText.Text = platformScopes;
         if (SettingsCwPlatformBoardBox.SelectedItem is ConnectWisePlatformClient.PlatformLookup board)
         {
             candidate.ConnectWisePlatformBoardId = board.Id;
@@ -2014,6 +2078,7 @@ public partial class MainWindow : Window
         ConnectWisePlatformBoardName = settings.ConnectWisePlatformBoardName,
         ConnectWisePlatformSourceId = settings.ConnectWisePlatformSourceId,
         ConnectWisePlatformSourceName = settings.ConnectWisePlatformSourceName,
+        ConnectWisePlatformShowDevices = settings.ConnectWisePlatformShowDevices,
         ConnectWiseMemberIdentifier = settings.ConnectWiseMemberIdentifier,
         AdminPinHash = settings.AdminPinHash,
         AdminPinSalt = settings.AdminPinSalt,
@@ -4173,6 +4238,7 @@ public sealed class AppSettings
     public string ConnectWisePlatformBoardName { get; set; } = "";
     public string ConnectWisePlatformSourceId { get; set; } = "";
     public string ConnectWisePlatformSourceName { get; set; } = "";
+    public bool ConnectWisePlatformShowDevices { get; set; }
     public string AdminPinHash { get; set; } = "";
     public string AdminPinSalt { get; set; } = "";
     public string BrandAccentColor { get; set; } = "";

@@ -216,6 +216,34 @@ using (var ticketingPlatform = new ConnectWisePlatformClient(ticketingSettings, 
     try { await ticketingPlatform.AddTicketNoteAsync("48213", "x"); throw new InvalidOperationException("Numeric ticket IDs must not be sent to the platform."); }
     catch (ArgumentException) { }
 }
+// ---- Caller devices (Platform RMM data)
+var devicesSettings = new AppSettings
+{
+    ConnectWiseTicketingMode = ConnectWiseTicketingMode.Psa,
+    ConnectWisePlatformShowDevices = true,
+    ConnectWisePlatformBaseUrl = ConnectWisePlatformClient.NorthAmericaBaseUrl,
+    ConnectWisePlatformClientId = "platform-client",
+    ConnectWisePlatformClientSecret = "platform-ticketing-" + testOnlyCredential,
+    ConnectWisePlatformScopes = ConnectWisePlatformClient.TicketingScopes + " " + ConnectWisePlatformClient.DevicesScope
+};
+using (var devicePlatform = new ConnectWisePlatformClient(devicesSettings, new FakePlatformTicketingHandler()))
+{
+    var devices = await devicePlatform.GetCompanyDevicesAsync(companyUuid);
+    Assert(devices.Count == 3, "All managed devices at the company should be listed.");
+    var frontDesk = devices.Single(device => device.Name == "FRONTDESK-01");
+    Assert(frontDesk.Online == true && frontDesk.LastUser == "ACME\\astone" && frontDesk.Os == "Windows 11 Pro", "Online status, last user, and OS should be merged onto each device.");
+    Assert(devices.Single(device => device.Name == "LAPTOP-7").Online == false, "Offline devices should report offline.");
+    Assert(devices.Single(device => device.Name == "PRINT-SRV").Online is null, "Devices missing from the heartbeat should show an unknown status.");
+}
+var ranked = ConnectWiseTicketing.RankDevices(
+[
+    new ConnectWisePlatformClient.PlatformDevice("1", "LAPTOP-7", "", false, "ACME\\jdoe"),
+    new ConnectWisePlatformClient.PlatformDevice("2", "PRINT-SRV", "", true, ""),
+    new ConnectWisePlatformClient.PlatformDevice("3", "FRONTDESK-01", "", true, "ACME\\astone")
+], "Avery Stone");
+Assert(ranked[0].Name == "FRONTDESK-01" && ranked[0].LikelyCaller && !ranked[1].LikelyCaller && ranked[1].Name == "PRINT-SRV", "The caller's own device should be first, then online devices.");
+Assert(ConnectWiseTicketing.CanShowDevices(devicesSettings) && !ConnectWiseTicketing.CanShowDevices(new AppSettings()), "Devices show only when enabled and Platform is connected.");
+
 var timeNote = ConnectWisePlatformClient.TimeNoteText("tgifol", new DateTimeOffset(2026, 9, 17, 14, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 17, 14, 12, 0, TimeSpan.Zero), "Reset password");
 Assert(timeNote.Contains("12 min") && timeNote.Contains("tgifol") && timeNote.EndsWith("Reset password"), "Platform time note text is wrong.");
 Assert(!ConnectWiseTicketing.RecordsTimeAsEntry(ticketUuid) && ConnectWiseTicketing.RecordsTimeAsEntry("48213"), "Time should be a PSA entry only for numeric PSA tickets.");
@@ -395,6 +423,17 @@ sealed class FakePlatformTicketingHandler : HttpMessageHandler
                   "primarySite":{"primaryPhoneNumber":{"countryCode":"+1","nationalNumber":"9085550199"}}},
                  {"id":"not-a-uuid","name":"Broken"}]
                 """);
+            case "/api/platform/v2/device/categories/platform/endpoints" when request.Method == HttpMethod.Post:
+                return Json("""
+                {"platform":[{"companyID":"11111111-1111-1111-1111-111111111111","siteID":"s1","endpoints":[
+                  {"endpointID":"e1","deviceName":"frontdesk-01","friendlyName":"FRONTDESK-01","os":{"product":"Windows 11 Pro"}},
+                  {"endpointID":"e2","deviceName":"LAPTOP-7","os":{"product":"Windows 10 Pro"}},
+                  {"endpointID":"e3","deviceName":"PRINT-SRV"}]}]}
+                """);
+            case "/api/platform/v2/device/endpoints/heartbeat":
+                return Json("""{"status":"success","successfulRecords":[{"companyID":"11111111-1111-1111-1111-111111111111","endpoints":[{"EndpointID":"e1","Availability":true},{"EndpointID":"e2","Availability":false}]}],"failedRecords":[]}""");
+            case "/api/platform/v2/device/endpoints/systemstate":
+                return Json("""{"status":"success","successfulRecords":[{"companyID":"11111111-1111-1111-1111-111111111111","endpoints":[{"endpointID":"e1","lastLoggedOnUser":{"username":"ACME\\astone"}}]}]}""");
             case "/api/platform/v1/service/ticketing/statuses":
                 return Json("""[{"id":"66666666-6666-6666-6666-666666666666","name":"Closed","category":"Closed"},{"id":"77777777-7777-7777-7777-777777777777","name":"In Progress","category":"InProgress"}]""");
             case "/api/platform/v1/service/ticketing/service-boards":

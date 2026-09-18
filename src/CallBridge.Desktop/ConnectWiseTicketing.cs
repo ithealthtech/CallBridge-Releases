@@ -172,6 +172,37 @@ public sealed class ConnectWiseTicketing : IDisposable
     public Task<string> CreateContactAsync(string companyId, string firstName, string lastName, int phoneTypeId, string phone, CancellationToken cancellationToken = default) =>
         Psa.CreateContactAsync(companyId, firstName, lastName, phoneTypeId, phone, cancellationToken);
 
+    /// <summary>The caller's company devices come from ConnectWise Platform, whichever ticketing connection is chosen.</summary>
+    public static bool CanShowDevices(AppSettings settings) =>
+        settings.ConnectWisePlatformShowDevices && ConnectWisePlatformClient.IsConfigured(settings);
+
+    /// <summary>
+    /// The company's managed devices, best matches first: devices whose last signed-in user looks like the caller.
+    /// </summary>
+    public async Task<CallerDevices> GetCallerDevicesAsync(string companyId, string? companyName, string? contactName, int maximum = 6, CancellationToken cancellationToken = default)
+    {
+        if (!CanShowDevices(_settings)) return new([], null, 0);
+        var company = await PlatformClient.ResolveCompanyAsync(companyId, companyName, cancellationToken);
+        if (company is null) return new([], "This company wasn't found in ConnectWise Platform, so its devices can't be shown.", 0);
+        var devices = await PlatformClient.GetCompanyDevicesAsync(company.Id, cancellationToken);
+        var ranked = RankDevices(devices, contactName);
+        return new(ranked.Take(Math.Clamp(maximum, 1, 50)).ToList(), ranked.Count == 0 ? "No managed devices for this company." : null, ranked.Count);
+    }
+
+    /// <summary>The caller's own devices first (last signed-in user matches their name), then online ones, then by name.</summary>
+    public static List<CallerDevice> RankDevices(IEnumerable<ConnectWisePlatformClient.PlatformDevice> devices, string? contactName)
+    {
+        var nameParts = (contactName ?? "").Split([' ', '.', '-', '_'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(part => part.Length >= 3).ToArray();
+        return devices
+            .Select(device => new CallerDevice(device.Name, device.Os, device.Online, device.LastUser,
+                nameParts.Length > 0 && nameParts.Any(part => device.LastUser.Contains(part, StringComparison.OrdinalIgnoreCase))))
+            .OrderByDescending(device => device.LikelyCaller)
+            .ThenByDescending(device => device.Online == true)
+            .ThenBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
     /// <summary>A browser link for the ticket, when one is known. The platform API doesn't publish ticket web links.</summary>
     public string? TicketUrl(string ticketId) => PsaConfigured && long.TryParse(ticketId, out _) ? Psa.TicketUrl(ticketId) : null;
     public string? CompanyUrl(string companyId) => PsaConfigured && long.TryParse(companyId, out _) ? Psa.CompanyUrl(companyId) : null;
@@ -182,3 +213,8 @@ public sealed class ConnectWiseTicketing : IDisposable
         _platform?.Dispose();
     }
 }
+
+/// <summary>A device shown in the call pop-up. LikelyCaller means its last signed-in user matches the caller's name.</summary>
+public sealed record CallerDevice(string Name, string Os, bool? Online, string LastUser, bool LikelyCaller);
+
+public sealed record CallerDevices(IReadOnlyList<CallerDevice> Devices, string? Message, int Total);

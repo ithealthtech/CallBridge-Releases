@@ -26,6 +26,12 @@ internal static class Program
                 new ConnectWiseTicketSummary("48190", "New hire laptop for Kayla R.", "Priority 4 - Low", "Scheduled")
             ],
             null));
+        pop.SetDevices(new CallerDevices(
+        [
+            new CallerDevice("FRONTDESK-01", "Windows 11 Pro", true, "BRD\\dmercer", true),
+            new CallerDevice("EXAM-ROOM-3", "Windows 10 Pro", true, "BRD\\kreyes", false),
+            new CallerDevice("OFFICE-MGR", "Windows 11 Pro", false, "BRD\\admin", false)
+        ], null, 9));
         var content = (FrameworkElement)pop.Content;
         content.Measure(new Size(IncomingCallWindow.PopWidth, double.PositiveInfinity));
         var height = (int)Math.Ceiling(content.DesiredSize.Height);
@@ -33,7 +39,7 @@ internal static class Program
         content.Arrange(new Rect(0, 0, IncomingCallWindow.PopWidth, height));
         content.UpdateLayout();
         var texts = FindVisualChildren<TextBlock>(content).Select(text => text.Text).ToArray();
-        foreach (var expected in new[] { "Dana Mercer", "Blue Ridge Dental", "#48213", "P2", "Answer", "Decline" })
+        foreach (var expected in new[] { "Dana Mercer", "Blue Ridge Dental", "#48213", "P2", "Answer", "Decline", "FRONTDESK-01", "Likely theirs", "DEVICES · 3 OF 9" })
             if (!texts.Contains(expected) && !FindVisualChildren<Button>(content).Any(button => Equals(button.Content, expected)))
                 throw new InvalidOperationException($"Screen pop is missing '{expected}'.");
         var bitmap = new RenderTargetBitmap((int)IncomingCallWindow.PopWidth, height, 96, 96, PixelFormats.Pbgra32);

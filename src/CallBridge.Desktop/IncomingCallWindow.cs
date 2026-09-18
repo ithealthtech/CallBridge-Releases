@@ -128,6 +128,8 @@ public sealed class IncomingCallWindow : Window
         root.Children.Add(new Border { Height = 1, Background = Themed("Line") });
         _context = new StackPanel { Background = Themed("Sunk") };
         root.Children.Add(_context);
+        _devices = new StackPanel { Background = Themed("Sunk"), Visibility = Visibility.Collapsed };
+        root.Children.Add(_devices);
 
         Content = root;
         ShowIdentity(null, null);
@@ -149,7 +151,69 @@ public sealed class IncomingCallWindow : Window
         ContentRendered += (_, _) => _answerButton.Focus();
     }
 
+    private readonly StackPanel _devices;
+
+    /// <summary>Shows the caller's company devices under the tickets. Null hides the section.</summary>
+    public void SetDevices(CallerDevices? devices)
+    {
+        _devices.Children.Clear();
+        if (devices is null || (devices.Devices.Count == 0 && string.IsNullOrWhiteSpace(devices.Message)))
+        {
+            _devices.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _devices.Visibility = Visibility.Visible;
+        _devices.Children.Add(new Border { Height = 1, Background = Themed("Line") });
+        _devices.Children.Add(Label(devices.Total > devices.Devices.Count ? $"DEVICES · {devices.Devices.Count} OF {devices.Total}" : "DEVICES"));
+        if (devices.Devices.Count == 0)
+        {
+            _devices.Children.Add(Note(devices.Message ?? "No managed devices for this company.", bottom: 14));
+            return;
+        }
+        var list = new StackPanel { Margin = new Thickness(16, 0, 16, 12) };
+        foreach (var device in devices.Devices) list.Children.Add(DeviceRow(device, this));
+        _devices.Children.Add(list);
+    }
+
+    /// <summary>One device line: online dot, name, last signed-in user, and a "Likely theirs" pill.</summary>
+    internal static FrameworkElement DeviceRow(CallerDevice device, FrameworkElement resources)
+    {
+        Brush Themed(string key) => (Brush)resources.FindResource(key);
+        var row = new Grid { Margin = new Thickness(0, 3, 0, 3) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var state = device.Online switch { true => "Online", false => "Offline", _ => "Status unknown" };
+        var dot = new System.Windows.Shapes.Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Margin = new Thickness(0, 0, 9, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Fill = device.Online switch { true => Themed("Good"), false => Themed("Muted"), _ => Brushes.Transparent },
+            Stroke = device.Online is null ? Themed("Muted") : null,
+            ToolTip = state
+        };
+        var detail = string.Join(" · ", new[] { device.LastUser, device.Os }.Where(part => !string.IsNullOrWhiteSpace(part)));
+        var text = new StackPanel();
+        text.Children.Add(new TextBlock { Text = device.Name, Foreground = Themed("Ink"), TextTrimming = TextTrimming.CharacterEllipsis });
+        if (detail.Length > 0) text.Children.Add(new TextBlock { Text = detail, Foreground = Themed("Muted"), FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis });
+        Grid.SetColumn(text, 1);
+        row.Children.Add(dot);
+        row.Children.Add(text);
+        if (device.LikelyCaller)
+        {
+            var pill = Pill("Likely theirs", Themed("Accent"));
+            pill.ToolTip = "The last person signed in to this device matches the caller's name";
+            Grid.SetColumn(pill, 2);
+            row.Children.Add(pill);
+        }
+        AutomationProperties.SetName(row, $"{device.Name}, {state.ToLowerInvariant()}{(detail.Length > 0 ? ", " + detail : "")}{(device.LikelyCaller ? ", likely the caller's device" : "")}");
+        return row;
+    }
+
     /// <summary>Replaces the lookup area. Pass null to show the loading state.</summary>
+
     public void SetContext(IncomingCallContext? context)
     {
         _context.Children.Clear();
@@ -235,7 +299,7 @@ public sealed class IncomingCallWindow : Window
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         row.ColumnDefinitions.Add(new ColumnDefinition());
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var number = new TextBlock { Text = $"#{ticket.Id}", Foreground = Themed("Muted"), FontSize = 12, FontFamily = (FontFamily)FindResource("MonoFont"), Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        var number = new TextBlock { Text = $"#{ticket.DisplayNumber}", Foreground = Themed("Muted"), FontSize = 12, FontFamily = (FontFamily)FindResource("MonoFont"), Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
         var summary = new TextBlock { Text = string.IsNullOrWhiteSpace(ticket.Summary) ? "(no summary)" : ticket.Summary, Foreground = Themed("Ink"), FontWeight = FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, ToolTip = ticket.Summary };
         var pill = Pill(ShortPriority(ticket), PriorityBrush(ticket.Priority));
         Grid.SetColumn(summary, 1);
@@ -251,9 +315,9 @@ public sealed class IncomingCallWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(4, 7, 4, 7),
             MinHeight = 0,
-            ToolTip = $"Open ticket #{ticket.Id} in ConnectWise"
+            ToolTip = $"Open ticket #{ticket.DisplayNumber} in ConnectWise"
         };
-        AutomationProperties.SetName(button, $"Ticket {ticket.Id}: {ticket.Summary}");
+        AutomationProperties.SetName(button, $"Ticket {ticket.DisplayNumber}: {ticket.Summary}");
         button.Click += (_, _) => _openTicket(ticket.Id);
         return new Border { BorderBrush = Themed("Line"), BorderThickness = new Thickness(0, divider ? 1 : 0, 0, 0), Child = button };
     }

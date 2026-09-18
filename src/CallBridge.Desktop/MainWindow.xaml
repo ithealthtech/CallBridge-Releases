@@ -282,6 +282,12 @@
                                     <StackPanel x:Name="CallTicketsPanel"/>
                                     <TextBlock x:Name="CallTicketsNote" Text="Looking up the caller…" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0"/>
 
+                                    <StackPanel x:Name="CallDevicesSection" Visibility="Collapsed">
+                                        <TextBlock x:Name="CallDevicesLabel" Text="DEVICES" Style="{StaticResource SectionLabel}" Margin="0,14,0,4"/>
+                                        <StackPanel x:Name="CallDevicesPanel"/>
+                                        <TextBlock x:Name="CallDevicesNote" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" Visibility="Collapsed"/>
+                                    </StackPanel>
+
                                     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
                                         <Ellipse Width="8" Height="8" Fill="{DynamicResource Good}" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                         <TextBlock x:Name="CallQualityText" Text="Waiting for call-quality data" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" MaxWidth="210"/>
@@ -688,6 +694,7 @@
                                         </StackPanel>
                                     </UniformGrid>
                                     <WrapPanel Margin="4,4,4,0">
+                                        <CheckBox x:Name="SettingsCwShowDevicesCheckBox" Content="Show the caller's devices in the call pop-up" Margin="0,0,16,6" VerticalAlignment="Center" ToolTip="Lists the company's managed devices, whether they're online, and who last signed in. Needs the Devices - Read permission on this API access." AutomationProperties.Name="Show the caller's devices"/>
                                         <Button x:Name="SettingsLoadPlatformBoardsButton" Content="Load boards and sources" Style="{StaticResource ToolbarButton}" Margin="0,0,6,0" ToolTip="Load service boards and sources from ConnectWise Platform" AutomationProperties.Name="Load platform boards and sources"/>
                                         <TextBlock Text="Save settings after testing the connection, then load and choose the defaults." Style="{StaticResource SettingsFieldLabel}" VerticalAlignment="Center" TextWrapping="Wrap"/>
                                     </WrapPanel>

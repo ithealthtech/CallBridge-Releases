@@ -113,6 +113,92 @@ public sealed class ConnectWisePlatformClient : IDisposable
     // ---- Ticketing (ConnectWise Platform Partner API: /api/platform/v2/service/ticketing, /api/platform/v1/company) ----
 
     public const string TicketingScopes = "platform.tickets.read platform.tickets.create platform.tickets.update platform.companies.read";
+    public const string DevicesScope = "platform.devices.read";
+
+    /// <summary>A managed device at the caller's company, with its online state and last signed-in user when known.</summary>
+    public sealed record PlatformDevice(string Id, string Name, string Os, bool? Online, string LastUser);
+
+    /// <summary>
+    /// Lists a company's managed devices (RMM endpoints), then adds online status and the last signed-in user.
+    /// Status and user lookups are best-effort: a device list is still returned if either of them fails.
+    /// </summary>
+    public async Task<List<PlatformDevice>> GetCompanyDevicesAsync(string platformCompanyId, CancellationToken cancellationToken = default)
+    {
+        if (!IsPlatformId(platformCompanyId)) throw new ArgumentException("ConnectWise Platform company ID must be a UUID.", nameof(platformCompanyId));
+        var body = JsonSerializer.Serialize(new { resourceType = "company", resources = new[] { platformCompanyId } });
+        JsonDocument listing;
+        using (var request = new HttpRequestMessage(HttpMethod.Post, "/api/platform/v2/device/categories/platform/endpoints?limit=200&sortBy=friendlyName&field=endpointID,deviceName,friendlyName,os") { Content = new StringContent(body, Encoding.UTF8, "application/json") })
+        using (var response = await SendAsync(request, cancellationToken))
+        {
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                // Some tenants reject the field projection; fall back to the default fields.
+                using var retry = new HttpRequestMessage(HttpMethod.Post, "/api/platform/v2/device/categories/platform/endpoints?limit=200") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+                using var retried = await SendAsync(retry, cancellationToken);
+                content = await retried.Content.ReadAsStringAsync(cancellationToken);
+                if (!retried.IsSuccessStatusCode) throw new HttpRequestException(ApiError(retried, content));
+            }
+            else if (!response.IsSuccessStatusCode) throw new HttpRequestException(ApiError(response, content));
+            listing = JsonDocument.Parse(content);
+        }
+
+        var devices = new List<(string Id, string Name, string Os)>();
+        using (listing)
+        {
+            if (listing.RootElement.ValueKind == JsonValueKind.Object && listing.RootElement.TryGetProperty("platform", out var groups) && groups.ValueKind == JsonValueKind.Array)
+                foreach (var group in groups.EnumerateArray())
+                    if (group.TryGetProperty("endpoints", out var endpoints) && endpoints.ValueKind == JsonValueKind.Array)
+                        foreach (var endpoint in endpoints.EnumerateArray())
+                        {
+                            var id = StringProperty(endpoint, "endpointID");
+                            var name = FirstNonEmpty(StringProperty(endpoint, "friendlyName"), StringProperty(endpoint, "deviceName"));
+                            var os = endpoint.TryGetProperty("os", out var osNode) && osNode.ValueKind == JsonValueKind.Object ? StringProperty(osNode, "product") : "";
+                            if (id.Length > 0 && name.Length > 0) devices.Add((id, name, os));
+                        }
+        }
+        if (devices.Count == 0) return [];
+
+        var online = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var heartbeat = await GetJsonAsync($"/api/platform/v2/device/endpoints/heartbeat?resourceType=companies&resources={Uri.EscapeDataString(platformCompanyId)}", cancellationToken);
+            foreach (var endpoint in RecordEndpoints(heartbeat.RootElement))
+            {
+                var id = FirstNonEmpty(StringProperty(endpoint, "EndpointID"), StringProperty(endpoint, "endpointID"));
+                var available = endpoint.TryGetProperty("Availability", out var a) ? a : endpoint.TryGetProperty("availability", out var b) ? b : default;
+                if (id.Length > 0 && available.ValueKind is JsonValueKind.True or JsonValueKind.False) online[id] = available.GetBoolean();
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException) { }
+
+        var lastUser = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var state = await GetJsonAsync($"/api/platform/v2/device/endpoints/systemstate?resourceType=companies&resources={Uri.EscapeDataString(platformCompanyId)}", cancellationToken);
+            foreach (var endpoint in RecordEndpoints(state.RootElement))
+            {
+                var id = StringProperty(endpoint, "endpointID");
+                if (id.Length > 0 && endpoint.TryGetProperty("lastLoggedOnUser", out var user) && user.ValueKind == JsonValueKind.Object)
+                    lastUser[id] = StringProperty(user, "username");
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException) { }
+
+        return devices
+            .Select(device => new PlatformDevice(device.Id, device.Name, device.Os, online.TryGetValue(device.Id, out var up) ? up : null, lastUser.TryGetValue(device.Id, out var user) ? user : ""))
+            .ToList();
+    }
+
+    /// <summary>Flattens the successfulRecords[].endpoints[] shape used by the heartbeat and system state APIs.</summary>
+    private static IEnumerable<JsonElement> RecordEndpoints(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("successfulRecords", out var records) || records.ValueKind != JsonValueKind.Array) return [];
+        return records.EnumerateArray()
+            .Where(record => record.TryGetProperty("endpoints", out var list) && list.ValueKind == JsonValueKind.Array)
+            .SelectMany(record => record.GetProperty("endpoints").EnumerateArray())
+            .ToList();
+    }
     private const string TicketsPath = "/api/platform/v2/service/ticketing/tickets";
     private static readonly ConcurrentDictionary<string, (DateTimeOffset LoadedAt, List<PlatformCompany> Companies)> CompanyCache = new();
 
