@@ -155,8 +155,18 @@
           </div></details>
 
           <details>
+            <summary>Devices don't appear in the pop-up</summary><div>
+            <ul>
+              <li>Turn on <strong>Show the caller's devices in the call pop-up</strong> in Settings &rarr; ConnectWise &rarr; ConnectWise Platform, with the Platform client ID and secret filled in.</li>
+              <li><em>"needs the Devices - Read permission"</em>: add <strong>Devices &ndash; Read</strong> to CallBridge's API access in ConnectWise &rarr; Integrations &rarr; API Access.</li>
+              <li><em>"This company wasn't found in ConnectWise Platform"</em>: on PSA, companies are matched to Platform by their linked ID, then by exact name. Make sure the company name matches in both.</li>
+              <li>Devices only show for recognized callers, since CallBridge needs to know the company.</li>
+            </ul>
+          </div></details>
+
+          <details>
             <summary>Does CallBridge work with ConnectWise RMM?</summary><div>
-            <p>Not directly. There is no RMM setting. Tickets that RMM creates in PSA or Platform, like patching and device alerts, appear in the incoming call window with the customer's other open tickets.</p>
+            <p>Yes, through ConnectWise Platform: turn on <strong>Show the caller's devices</strong> to see the company's RMM devices, their online status, and who last signed in. RMM-created tickets also appear with the customer's other open tickets.</p>
           </div></details>
         </div>
       </div>

@@ -31,7 +31,7 @@ for updates. The application source code is kept in a private repository.
 
 ## What you get
 
-- **Screen pop.** Incoming calls show the contact, company, and up to five open tickets.
+- **Screen pop.** Incoming calls show the contact, company, up to five open tickets, and (optionally) the company's devices with the caller's own marked.
 - **Notes on the ticket.** Type during the call, and keep adding notes after it ends in wrap-up.
 - **Time you confirm.** A time entry draft appears after each call, ready to check and save.
 - **Voicemail and parking.** Message count and park-slot status on the Home screen.
@@ -98,7 +98,8 @@ ConnectWise: **[docs/quick-start.md](docs/quick-start.md)** or the
 | Caller matching | All contacts | Company main number and primary contact, plus imported contacts |
 | Open ticket in browser | ✅ | Ticket number shown |
 | Save a caller's number to a contact | ✅ | Not available (add it in ConnectWise) |
-| ConnectWise RMM | RMM-created tickets appear as normal tickets | Same |
+| Caller's devices (from RMM) | ✅ with Platform API access | ✅ |
+| ConnectWise RMM tickets | Appear as normal tickets | Same |
 
 ## Documentation
 

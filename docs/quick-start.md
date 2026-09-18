@@ -151,11 +151,25 @@ Click **Test PSA**. You should see *ConnectWise PSA authentication succeeded.* T
 > number and primary contact (plus contacts you import), and shows the ticket number to open
 > in ConnectWise.
 
+### Show the caller's devices (optional)
+
+CallBridge can list the caller's company devices in the incoming call window: name, online or
+offline, who last signed in, and the operating system. A device whose last user matches the
+caller's name is marked **Likely theirs** and shown first. It works with either ticketing
+connection, because the devices come from ConnectWise Platform.
+
+1. In ConnectWise: **Integrations → API Access**, edit CallBridge's access and add
+   **Devices – Read**. Do this first, or Platform sign-in will fail.
+2. In the **ConnectWise Platform** card, enter the client ID and secret if you haven't, tick
+   **Show the caller's devices in the call pop-up**, and save. CallBridge adds
+   `platform.devices.read` to the scopes for you.
+3. Click **Test Platform**, then take a call from a customer.
+
 ### ConnectWise RMM
 
-CallBridge doesn't connect to ConnectWise RMM directly, and there is nothing to set up.
 Tickets that RMM creates in PSA or Platform, such as patching or device alerts, appear in the
-incoming call window like any other open ticket.
+incoming call window like any other open ticket. To also see the caller's **devices**, turn on
+[Show the caller's devices](#show-the-callers-devices-optional).
 
 ## 5. Load your customers (Admin)
 

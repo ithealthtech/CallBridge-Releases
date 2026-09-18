@@ -52,6 +52,7 @@
           <a href="#connectwise">4. ConnectWise</a>
           <a href="#psa">&nbsp;&nbsp;&nbsp;PSA</a>
           <a href="#platform">&nbsp;&nbsp;&nbsp;Platform</a>
+          <a href="#devices">&nbsp;&nbsp;&nbsp;Caller's devices</a>
           <a href="#rmm">&nbsp;&nbsp;&nbsp;ConnectWise RMM</a>
           <a href="#directory">5. Load your customers</a>
           <a href="#audio">6. Headset</a>
@@ -206,6 +207,14 @@
             <span aria-hidden="true">!</span>
             <p><strong>What Platform can't do yet.</strong> ConnectWise's Platform API has no time entries, no contact search, and no ticket web links. CallBridge saves call time as an internal note, matches callers by each company's main number and primary contact (plus contacts you import), and shows the ticket number for you to open in ConnectWise.</p>
           </div>
+
+          <h3 id="devices">Show the caller's devices (optional)</h3>
+          <p>CallBridge can list the caller's company devices in the incoming call window: name, online or offline, who last signed in, and the operating system. A device whose last user matches the caller's name is marked <strong>Likely theirs</strong> and shown first. This works with either ticketing connection, because the devices come from ConnectWise Platform.</p>
+          <ol class="step-list">
+            <li><strong>Add the permission</strong>In ConnectWise: Integrations &rarr; API Access, edit CallBridge's access and add <strong>Devices &ndash; Read</strong>. Do this first, or Platform sign-in will fail.</li>
+            <li><strong>Turn it on</strong>In the <strong>ConnectWise Platform</strong> card, enter the client ID and secret if you haven't, tick <strong>Show the caller's devices in the call pop-up</strong>, and save. CallBridge adds <code>platform.devices.read</code> to the scopes for you.</li>
+            <li><strong>Test</strong>Click <strong>Test Platform</strong>, then take a call from a customer. The devices appear under their open tickets.</li>
+          </ol>
 
           <h3 id="rmm">ConnectWise RMM</h3>
           <div class="notice">
