@@ -71,6 +71,7 @@
           <details>
             <summary>Incoming calls don't ring</summary><div>
             <ul>
+              <li><strong>Update to v0.19.1 or later.</strong> Earlier versions didn't answer the phone system's reachability checks, so the phone system could stop sending calls for up to 5 minutes. This is the most common cause of calls that never rang or rang late.</li>
               <li>CallBridge must be running. Look for its icon in the system tray. Turn on <strong>Launch when I sign in to Windows</strong> in Settings &rarr; Sign-in.</li>
               <li>Settings &rarr; Audio &rarr; <strong>Ringtone plays on</strong>: choose a speaker you can hear, then <strong>Test ringtone</strong>.</li>
               <li>Windows Focus assist or Do not disturb can hide the notification. The incoming call window still appears.</li>
@@ -100,7 +101,7 @@
           <details>
             <summary>A customer calls but shows as an unknown number</summary><div>
             <ul>
-              <li>Settings &rarr; ConnectWise &rarr; <strong>Sync ConnectWise contacts</strong> to refresh the directory. New ConnectWise contacts don't appear until you sync.</li>
+              <li>CallBridge checks its own directory first, then asks ConnectWise PSA directly and remembers the answer. It also syncs the directory automatically after startup and every 12 hours. To refresh now, use Settings &rarr; ConnectWise &rarr; <strong>Sync ConnectWise contacts</strong>.</li>
               <li>The contact needs a phone number in ConnectWise that matches the number they're calling from, such as their mobile.</li>
               <li>On <strong>ConnectWise Platform</strong>, only each company's main number and primary contact's number can match. Add other callers with <strong>Import CSV</strong> or <strong>Add contact</strong>, or use <strong>Platform, with PSA contact lookup</strong>.</li>
             </ul>
