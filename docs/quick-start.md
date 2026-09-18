@@ -111,7 +111,7 @@ Open the **ConnectWise** tab and choose a **Ticketing connection**:
 In ConnectWise PSA:
 
 1. **System → Members → API Members → +.** Give it a security role that can read companies,
-   contacts, and service tickets, create tickets and notes, and create time entries.
+   contacts, and service tickets, create tickets and notes, create time entries, and add and edit contacts (used to save callers' numbers).
 2. Open the member → **API Keys → +**. Copy the public and private key. The private key is
    shown only once.
 3. **Service → Setup Tables → Service Boards.** Open the board for phone tickets; the number
@@ -165,6 +165,9 @@ CallBridge recognizes callers by matching their number against its directory.
   number. On Platform it downloads companies and their main numbers.
 - **Import CSV** adds contacts from a spreadsheet.
 - **Add contact** adds one person by hand.
+- **Save number to ConnectWise** (during or after a call) adds an unknown caller's number to
+  a ConnectWise contact. It needs the PSA connection, and the API member's security role must
+  allow adding and editing company contacts.
 
 Numbers match however they're formatted: `(732) 297-7575`, `732-297-7575`, and
 `+17322977575` are the same caller.
@@ -205,6 +208,7 @@ time entries are logged under it.
 | **Call someone** | Type a name or number in *Search contacts or dial* and press Enter or **Call**, or click the phone button on a recent call or contact. |
 | **Answer from anywhere** | The incoming call window appears on top of other apps, with a Windows notification. |
 | **Take notes on a ticket** | Pick the ticket and type. **Save note now** saves immediately; unsaved notes save when you hang up. Each save adds a separate note. |
+| **Save an unknown caller's number** | Click **Save number to ConnectWise** under their details, or **Save number** on the recent call. Search for the company, pick the contact or create one, choose Direct or Mobile, and save. Needs the PSA connection. |
 | **Add a note to an older call** | Select the call in *Recent calls* and click **Add note** to write on one of that company's open tickets. |
 | **Finish notes after the call** | When the caller hangs up the notes panel stays open. Choose a ticket, keep typing, save, then click **Done**. See [Wrap-up](#wrap-up-notes-after-the-call-ends). |
 | **Create a ticket** | Click **+ New ticket** during the call. For unknown callers, search for the company first. |

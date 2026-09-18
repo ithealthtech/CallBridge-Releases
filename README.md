@@ -97,6 +97,7 @@ ConnectWise: **[docs/quick-start.md](docs/quick-start.md)** or the
 | Time entries | ✅ | Saved as a ticket note |
 | Caller matching | All contacts | Company main number and primary contact, plus imported contacts |
 | Open ticket in browser | ✅ | Ticket number shown |
+| Save a caller's number to a contact | ✅ | Not available (add it in ConnectWise) |
 | ConnectWise RMM | RMM-created tickets appear as normal tickets | Same |
 
 ## Documentation
