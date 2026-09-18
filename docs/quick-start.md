@@ -225,6 +225,9 @@ time entries are logged under it.
 | **Save an unknown caller's number** | Click **Save number to ConnectWise** under their details, or **Save number** on the recent call. Search for the company, pick the contact or create one, choose Direct or Mobile, and save. Needs the PSA connection. |
 | **Add a note to an older call** | Select the call in *Recent calls* and click **Add note** to write on one of that company's open tickets. |
 | **Finish notes after the call** | When the caller hangs up the notes panel stays open. Choose a ticket, keep typing, save, then click **Done**. See [Wrap-up](#wrap-up-notes-after-the-call-ends). |
+| **Change a ticket's status or priority** | Pick the ticket in *LOG TO*, then use **Status** and **Priority** in the ticket bar. Changes apply right away. |
+| **Take ownership** | Click **Assign to me** in the ticket bar (PSA tickets; uses your member ID). |
+| **Close a ticket** | Click **Close ticket…**, choose the closed status, confirm the resolution (your call notes are filled in), and close. |
 | **Create a ticket** | Click **+ New ticket** during the call. For unknown callers, search for the company first. |
 | **Transfer** | **Transfer** → enter the extension → **Blind transfer**, or **Consult first**. |
 | **Park a call** | Click **Park**. On Home, click **Pick up** next to the busy slot, or dial the slot from any phone. |

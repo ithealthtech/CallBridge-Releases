@@ -94,6 +94,8 @@ ConnectWise: **[docs/quick-start.md](docs/quick-start.md)** or the
 | Open tickets in the screen pop | ✅ | ✅ |
 | Create a ticket | ✅ | ✅ |
 | Call notes on a ticket | ✅ | ✅ |
+| Change status / priority, close with resolution | ✅ | ✅ |
+| Assign to me | ✅ | Not available |
 | Time entries | ✅ | Saved as a ticket note |
 | Caller matching | All contacts | Company main number and primary contact, plus imported contacts |
 | Open ticket in browser | ✅ | Ticket number shown |

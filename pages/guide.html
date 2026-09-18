@@ -173,7 +173,7 @@
           <h3 id="psa">ConnectWise PSA</h3>
           <p><strong>In ConnectWise PSA</strong>, create an API member for CallBridge:</p>
           <ol class="step-list">
-            <li><strong>Create the member</strong>System &rarr; Members &rarr; API Members &rarr; <strong>+</strong>. Give it a security role that can read companies, contacts, and service tickets, create tickets and notes, create time entries, and add and edit contacts (used to save callers' numbers).</li>
+            <li><strong>Create the member</strong>System &rarr; Members &rarr; API Members &rarr; <strong>+</strong>. Give it a security role that can read companies, contacts, and service tickets, create and edit service tickets and notes, create time entries, and add and edit contacts (used to save callers' numbers).</li>
             <li><strong>Generate keys</strong>Open the member &rarr; API Keys &rarr; <strong>+</strong>. Copy the <strong>public</strong> and <strong>private</strong> key. The private key is only shown once.</li>
             <li><strong>Find your board ID</strong>Service &rarr; Setup Tables &rarr; Service Boards. Open the board new phone tickets should go to; the number at the end of the page address is its ID.</li>
           </ol>
@@ -268,6 +268,9 @@
                 <tr><td><strong>Finish notes after the call</strong></td><td>When the caller hangs up, the notes panel stays open. Choose a ticket, keep typing, save, then click <strong>Done</strong>. See <a href="#wrap-up">Wrap-up</a>.</td></tr>
                 <tr><td><strong>Save an unknown caller's number</strong></td><td>When a caller isn't recognized, click <strong>Save number to ConnectWise</strong> under their details (or <strong>Save number</strong> on the recent call). Search for the company, pick the contact or create a new one, choose Direct or Mobile, and save. The next call from that number is recognized right away. Needs the PSA connection.</td></tr>
                 <tr><td><strong>Add a note to an older call</strong></td><td>Select the call in <em>Recent calls</em> and click <strong>Add note</strong> to write on one of that company's open tickets.</td></tr>
+                <tr><td><strong>Change a ticket's status or priority</strong></td><td>Pick the ticket in <em>LOG TO</em>. Use the <strong>Status</strong> and <strong>Priority</strong> lists in the ticket bar; changes apply right away.</td></tr>
+                <tr><td><strong>Take ownership</strong></td><td>Click <strong>Assign to me</strong> in the ticket bar (PSA tickets; uses your member ID).</td></tr>
+                <tr><td><strong>Close a ticket</strong></td><td>Click <strong>Close ticket&hellip;</strong>, choose the closed status, confirm the resolution (your call notes are filled in), and close.</td></tr>
                 <tr><td><strong>Create a ticket</strong></td><td>Click <strong>+ New ticket</strong> during the call. For unknown callers, search for the company first.</td></tr>
                 <tr><td><strong>Transfer</strong></td><td><strong>Transfer</strong> &rarr; enter the extension &rarr; <strong>Blind transfer</strong>, or <strong>Consult first</strong> to talk to them before handing off.</td></tr>
                 <tr><td><strong>Park a call</strong></td><td>Click <strong>Park</strong>. The Call parking card on Home shows which slot is busy. Click <strong>Pick up</strong> next to the slot, or dial the slot from any phone.</td></tr>
