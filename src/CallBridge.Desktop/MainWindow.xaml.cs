@@ -1446,6 +1446,16 @@ public partial class MainWindow : Window
         ExportHistoryButton.Click += async (_, _) => await ExportCallHistoryAsync();
         AddContactButton.Click += async (_, _) => await AddContactAsync();
         RowsList.AddHandler(System.Windows.Controls.Primitives.ButtonBase.ClickEvent, new RoutedEventHandler(OnRowActionClick));
+        // Right-click menu, built for the row under the pointer (right-click selects it first).
+        RowsList.ContextMenu = new ContextMenu();
+        RowsList.ContextMenuOpening += (_, e) =>
+        {
+            if (RowsList.SelectedItem is not RowItem row) { e.Handled = true; return; }
+            var menu = BuildRowMenu(row);
+            if (menu.Items.Count == 0) { e.Handled = true; return; }
+            RowsList.ContextMenu = menu;
+        };
+        RowsList.PreviewKeyDown += async (_, e) => await HandleRowShortcutAsync(e);
         VoicemailCardCallButton.Click += async (_, _) => await DialDestinationAsync(_settings.VoicemailAccessCode.Trim());
         ClearContactsButton.Click += async (_, _) => await ClearImportedContactsAsync();
         RefreshRowsButton.Click += async (_, _) => await RefreshCurrentViewAsync();
@@ -4008,6 +4018,218 @@ public partial class MainWindow : Window
         {
             ShowWarning($"The number couldn't be saved to ConnectWise: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Opens the caller pop-up for any contact or past call, without a call: contact, company, open tickets, and
+    /// devices, with Call and Close.
+    /// </summary>
+    private async Task ShowCustomerCardAsync(RowItem row)
+    {
+        var number = RowNumber(row);
+        var label = string.IsNullOrWhiteSpace(row.Title) ? number : row.Title;
+        IncomingCallWindow? card = null;
+        card = new IncomingCallWindow(label, IsCustomerPhoneNumber(number) ? number : "",
+            answer: async () =>
+            {
+                card?.Close();
+                if (!string.IsNullOrWhiteSpace(number)) await DialDestinationAsync(number);
+            },
+            decline: () => { card?.Close(); return Task.CompletedTask; },
+            openTicket: OpenConnectWiseTicket,
+            customerCard: true)
+        { Owner = this };
+        card.Show();
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        IncomingCallContext context;
+        try
+        {
+            context = IsCustomerPhoneNumber(number)
+                ? await LookupCallerSafelyAsync(number, timeout.Token)
+                : new IncomingCallContext(null, null, null, [], "This row has no customer phone number.");
+            // A row already linked to a company still shows its tickets when the number itself isn't on file.
+            if (context.CompanyId is null && ConnectWiseClient.IsCompanyId(row.CompanyId) && ConnectWiseTicketing.IsConfigured(_settings))
+            {
+                using var client = new ConnectWiseTicketing(_settings);
+                var (tickets, companyId) = await client.GetOpenTicketsAsync(row.CompanyId, row.Company, 5, timeout.Token);
+                context = new IncomingCallContext(row.ContactId.Length > 0 ? row.Title : null, row.Company, companyId, tickets, null);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException or OperationCanceledException)
+        {
+            context = new IncomingCallContext(null, row.Company, row.CompanyId, [], "Customer details couldn't be loaded right now.");
+        }
+        if (!card.IsLoaded) return;
+        card.SetContext(context);
+        var devices = await LoadCallerDevicesAsync(Task.FromResult(context), timeout.Token);
+        if (card.IsLoaded) card.SetDevices(devices);
+    }
+
+    private static string RowNumber(RowItem row) =>
+        !string.IsNullOrWhiteSpace(row.Destination) ? row.Destination : ExtractDestination(row.Detail);
+
+    /// <summary>Builds the right-click menu for a contact or call row. Only actions that apply to that row are shown.</summary>
+    private ContextMenu BuildRowMenu(RowItem row)
+    {
+        var menu = new ContextMenu();
+        var number = RowNumber(row);
+        var isCustomerNumber = IsCustomerPhoneNumber(number);
+        var hasCompany = !string.IsNullOrWhiteSpace(row.CompanyId);
+        var connectWise = ConnectWiseTicketing.IsConfigured(_settings);
+        var isPlaceholder = row.Title is "No live data" or "Loading...";
+        if (isPlaceholder) return menu;
+
+        MenuItem Item(string header, string gesture, Func<Task> action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = MenuText(header), InputGestureText = gesture, IsEnabled = enabled };
+            item.Click += async (_, _) => await action();
+            return item;
+        }
+
+        if (isCustomerNumber || hasCompany)
+            menu.Items.Add(Item("Show customer card", "Ctrl+I", () => ShowCustomerCardAsync(row)));
+        if (!string.IsNullOrWhiteSpace(number))
+            menu.Items.Add(Item($"Call {number}", "Enter", () => DialDestinationAsync(number), _activeCallId is null));
+
+        if (hasCompany && connectWise)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(LazySubmenu("Open tickets", "Ctrl+T", async () =>
+            {
+                using var client = new ConnectWiseTicketing(_settings);
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var (tickets, _) = await client.GetOpenTicketsAsync(row.CompanyId, row.Company, 10, timeout.Token);
+                return tickets.Count == 0
+                    ? [Disabled("No open tickets")]
+                    : tickets.Select(ticket =>
+                    {
+                        var item = new MenuItem { Header = MenuText($"#{ticket.DisplayNumber}  {ticket.Summary}"), ToolTip = $"{ticket.Status} · {ticket.Priority}" };
+                        item.Click += (_, _) => OpenTicketById(ticket.Id, ticket.DisplayNumber);
+                        return (object)item;
+                    }).ToList();
+            }));
+            if (ConnectWiseTicketing.CanShowDevices(_settings))
+                menu.Items.Add(LazySubmenu("Devices", "Ctrl+D", async () =>
+                {
+                    using var client = new ConnectWiseTicketing(_settings);
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                    var devices = await client.GetCallerDevicesAsync(row.CompanyId, row.Company, row.ContactId.Length > 0 ? row.Title : null, 15, timeout.Token);
+                    return devices.Devices.Count == 0
+                        ? [Disabled(devices.Message ?? "No managed devices")]
+                        : devices.Devices.Select(device =>
+                        {
+                            var state = device.Online switch { true => "online", false => "offline", _ => "status unknown" };
+                            var item = new MenuItem
+                            {
+                                Header = MenuText($"{(device.LikelyCaller ? "★ " : "")}{device.Name}  ({state})"),
+                                ToolTip = string.Join(" · ", new[] { device.LastUser, device.Os }.Where(part => part.Length > 0)) + "\nClick to copy the device name."
+                            };
+                            item.Click += (_, _) => CopyToClipboard(device.Name, $"Copied {device.Name}.");
+                            return (object)item;
+                        }).ToList();
+                }));
+            menu.Items.Add(Item("New ticket", "Ctrl+N", CreateTicketForSelectedContactAsync));
+            menu.Items.Add(Item("Add note to a ticket", "Ctrl+Shift+N", AddTicketNoteForSelectedRowAsync));
+            menu.Items.Add(Item("Open company in ConnectWise", "", () => { OpenSelectedCompany(); return Task.CompletedTask; }));
+        }
+        else if (isCustomerNumber && connectWise)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Save number to ConnectWise", "", SaveSelectedRowNumberAsync));
+            menu.Items.Add(Item("New ticket", "Ctrl+N", CreateTicketForSelectedContactAsync));
+        }
+
+        menu.Items.Add(new Separator());
+        if (!string.IsNullOrWhiteSpace(row.CallId))
+            menu.Items.Add(Item("Call notes", "", EditSelectedCallNoteAsync));
+        if (!string.IsNullOrWhiteSpace(number))
+            menu.Items.Add(Item("Copy number", "Ctrl+Shift+C", () => { CopyToClipboard(number, $"Copied {number}."); return Task.CompletedTask; }));
+        if (!string.IsNullOrWhiteSpace(row.Company))
+            menu.Items.Add(Item("Copy company name", "", () => { CopyToClipboard(row.Company, $"Copied {row.Company}."); return Task.CompletedTask; }));
+        if (!string.IsNullOrWhiteSpace(row.ContactId))
+        {
+            menu.Items.Add(Item("Edit contact", "", EditSelectedContactAsync));
+            menu.Items.Add(Item("Delete contact", "", DeleteSelectedContactAsync));
+        }
+        while (menu.Items.Count > 0 && menu.Items[^1] is Separator) menu.Items.RemoveAt(menu.Items.Count - 1);
+        return menu;
+    }
+
+    /// <summary>A submenu that loads its items from ConnectWise the first time it opens.</summary>
+    private static MenuItem LazySubmenu(string header, string gesture, Func<Task<List<object>>> load)
+    {
+        var item = new MenuItem { Header = MenuText(header), InputGestureText = gesture };
+        item.Items.Add(Disabled("Loading..."));
+        var loaded = false;
+        item.SubmenuOpened += async (_, e) =>
+        {
+            if (loaded || !ReferenceEquals(e.OriginalSource, item)) return;
+            loaded = true;
+            List<object> children;
+            try { children = await load(); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or ArgumentException or InvalidDataException or JsonException or InvalidOperationException)
+            {
+                children = [Disabled("Couldn't load from ConnectWise")];
+                loaded = false;
+            }
+            item.Items.Clear();
+            foreach (var child in children) item.Items.Add(child);
+        };
+        return item;
+    }
+
+    private static MenuItem Disabled(string text) => new() { Header = MenuText(text), IsEnabled = false };
+
+    /// <summary>Menu headers treat "_" as an access key; double it so names like FRONT_DESK show as typed.</summary>
+    private static string MenuText(string text) => text.Replace("_", "__");
+
+    private void OpenTicketById(string ticketId, string displayNumber)
+    {
+        try
+        {
+            using var client = new ConnectWiseTicketing(_settings);
+            if (client.TicketUrl(ticketId) is { } url) Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            else ShowBanner($"Open ticket #{displayNumber} in ConnectWise. The platform API doesn't provide a direct link.", WarnHex);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { ShowApiError($"The ticket couldn't be opened: {ex.Message}"); }
+    }
+
+    private void CopyToClipboard(string text, string confirmation)
+    {
+        try { Clipboard.SetText(text); ShowInlineStatus(confirmation); }
+        catch (Exception ex) when (ex is COMException or ExternalException) { ShowWarning("The clipboard is busy. Try again."); }
+    }
+
+    /// <summary>Keyboard shortcuts for the selected row, matching the right-click menu.</summary>
+    private async Task HandleRowShortcutAsync(KeyEventArgs e)
+    {
+        if (RowsList.SelectedItem is not RowItem row || row.Title is "No live data" or "Loading...") return;
+        var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+        var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+        if (!ctrl) return;
+        var hasCompany = !string.IsNullOrWhiteSpace(row.CompanyId);
+        switch (e.Key)
+        {
+            case Key.I:
+            case Key.T when !shift:
+            case Key.D when !shift:
+                e.Handled = true;
+                await ShowCustomerCardAsync(row);
+                break;
+            case Key.N when shift && hasCompany:
+                e.Handled = true;
+                await AddTicketNoteForSelectedRowAsync();
+                break;
+            case Key.N when !shift:
+                e.Handled = true;
+                await CreateTicketForSelectedContactAsync();
+                break;
+            case Key.C when shift:
+                e.Handled = true;
+                if (RowNumber(row) is { Length: > 0 } number) CopyToClipboard(number, $"Copied {number}.");
+                break;
         }
     }
 

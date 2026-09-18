@@ -707,6 +707,22 @@ internal static class Program
             throw new InvalidOperationException("Save number should default to the Direct phone type and prefill the caller's name.");
         if (LogicalButtons(phoneDialog).First(button => Equals(button.Content, "Save number")).IsEnabled)
             throw new InvalidOperationException("Save number must stay disabled until a company is chosen.");
+        // Right-click menu: actions depend on what the row is.
+        var buildMenu = typeof(MainWindow).GetMethod("BuildRowMenu", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        static List<string> Headers(ContextMenu menu) => menu.Items.OfType<MenuItem>().Select(item => (item.Header as string ?? "").Replace("__", "_")).ToList();
+        var unknownMenu = Headers((ContextMenu)buildMenu.Invoke(window, [unknownCall])!);
+        foreach (var expected in new[] { "Show customer card", "Call 7322977575", "Copy number", "Call notes" })
+            if (!unknownMenu.Contains(expected)) throw new InvalidOperationException($"An unrecognized caller's menu should offer '{expected}'. Got: {string.Join(", ", unknownMenu)}");
+        if (unknownMenu.Contains("Open tickets") || unknownMenu.Contains("Edit contact"))
+            throw new InvalidOperationException("A caller with no company or contact shouldn't offer tickets or contact edits.");
+        var extensionMenu = Headers((ContextMenu)buildMenu.Invoke(window, [call])!);
+        if (extensionMenu.Contains("Show customer card") || extensionMenu.Contains("Save number to ConnectWise"))
+            throw new InvalidOperationException("Internal extensions shouldn't offer customer actions.");
+        var customerCard = new IncomingCallWindow("Dana Mercer", "(828) 555-0142", () => Task.CompletedTask, () => Task.CompletedTask, _ => { }, customerCard: true);
+        var cardButtons = LogicalButtons(customerCard).Select(button => button.Content as string).ToList();
+        if (customerCard.Title != "Customer card" || customerCard.Topmost || !cardButtons.Contains("Call") || !cardButtons.Contains("Close") || cardButtons.Contains("Answer"))
+            throw new InvalidOperationException("The customer card should offer Call and Close, not Answer, and shouldn't stay on top.");
+        customerCard.Close();
         var closeDialog = new CloseTicketWindow("48213", [new TicketChoice("12", "Completed", true), new TicketChoice("13", "Closed", true)], "Reset the printer queue.");
         if (closeDialog.ClosedStatus?.Name != "Closed" || closeDialog.Resolution != "Reset the printer queue.")
             throw new InvalidOperationException("Close ticket should default to the Closed status and use the call notes as the resolution.");

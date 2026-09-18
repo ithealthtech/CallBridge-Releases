@@ -39,22 +39,28 @@ public sealed class IncomingCallWindow : Window
     private readonly Button _declineButton;
     private readonly string _callerLabel;
     private bool _acting;
+    private readonly bool _customerCard;
 
-    public IncomingCallWindow(string callerLabel, string number, Func<Task> answer, Func<Task> decline, Action<string> openTicket)
+    /// <summary>
+    /// Creates the incoming-call pop-up, or with <paramref name="customerCard"/> the same view opened by hand for any
+    /// customer: no ringing, Call and Close instead of Answer and Decline, and it isn't pinned on top.
+    /// </summary>
+    public IncomingCallWindow(string callerLabel, string number, Func<Task> answer, Func<Task> decline, Action<string> openTicket, bool customerCard = false)
     {
+        _customerCard = customerCard;
         _answer = answer;
         _decline = decline;
         _openTicket = openTicket;
         _callerLabel = string.IsNullOrWhiteSpace(callerLabel) ? "Unknown caller" : callerLabel.Trim();
         ThemeWindows.MergeTheme(this);
 
-        Title = "Incoming call";
+        Title = customerCard ? "Customer card" : "Incoming call";
         Width = PopWidth;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = true;
-        Topmost = true;
+        Topmost = !customerCard;
         Background = Themed("Line");
         Padding = new Thickness(1);
         FontFamily = (FontFamily)FindResource("UiFont");
@@ -62,14 +68,14 @@ public sealed class IncomingCallWindow : Window
         Foreground = Themed("Ink");
         UseLayoutRounding = true;
         WindowStartupLocation = WindowStartupLocation.Manual;
-        AutomationProperties.SetName(this, "Incoming call");
+        AutomationProperties.SetName(this, Title);
 
         var root = new StackPanel { Background = Themed("Panel") };
 
         var titleBar = new DockPanel { Background = Themed("Chrome"), Height = 34, LastChildFill = true };
         titleBar.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
         var close = ChromeButton("", "Hide this pop-up. The call keeps ringing in CallBridge.");
-        close.Click += (_, _) => Hide();
+        close.Click += (_, _) => { if (_customerCard) Close(); else Hide(); };
         var minimize = ChromeButton("", "Minimize");
         minimize.Click += (_, _) => WindowState = WindowState.Minimized;
         DockPanel.SetDock(close, Dock.Right);
@@ -86,7 +92,7 @@ public sealed class IncomingCallWindow : Window
         };
         DockPanel.SetDock(logo, Dock.Left);
         titleBar.Children.Add(logo);
-        titleBar.Children.Add(new TextBlock { Text = "Incoming call", FontSize = 12, Foreground = Themed("Muted"), VerticalAlignment = VerticalAlignment.Center });
+        titleBar.Children.Add(new TextBlock { Text = Title, FontSize = 12, Foreground = Themed("Muted"), VerticalAlignment = VerticalAlignment.Center });
         root.Children.Add(titleBar);
 
         var ring = new StackPanel { Margin = new Thickness(16) };
@@ -117,6 +123,15 @@ public sealed class IncomingCallWindow : Window
         _answerButton = new Button { Content = "Answer", Style = (Style)FindResource("GoodButton"), MinHeight = 38 };
         AutomationProperties.SetName(_declineButton, "Decline incoming call");
         AutomationProperties.SetName(_answerButton, "Answer incoming call");
+        if (customerCard)
+        {
+            _declineButton.Content = "Close";
+            _declineButton.Style = (Style)FindResource("ToolbarButton");
+            _answerButton.Content = "Call";
+            AutomationProperties.SetName(_declineButton, "Close customer card");
+            AutomationProperties.SetName(_answerButton, "Call this customer");
+            close.ToolTip = "Close";
+        }
         _declineButton.Click += async (_, _) => await RunAsync(_decline);
         _answerButton.Click += async (_, _) => await RunAsync(_answer);
         Grid.SetColumn(_answerButton, 2);
@@ -145,9 +160,15 @@ public sealed class IncomingCallWindow : Window
         };
         Loaded += (_, _) =>
         {
+            if (_customerCard)
+            {
+                if (Owner is null) PositionOnScreen();
+                return;
+            }
             PositionOnScreen();
             StartPulse();
         };
+        if (customerCard) WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ContentRendered += (_, _) => _answerButton.Focus();
     }
 
