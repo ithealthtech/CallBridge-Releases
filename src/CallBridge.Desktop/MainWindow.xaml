@@ -42,6 +42,7 @@
 
                 <StackPanel x:Name="NavTabs" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="HomeTabButton" Style="{StaticResource TabButton}" Content="Home"/>
+                    <Button x:Name="ContactsTabButton" Style="{StaticResource TabButton}" Content="Contacts"/>
                     <Button x:Name="MoreTabButton" Style="{StaticResource TabButton}" Content="More"/>
                 </StackPanel>
 

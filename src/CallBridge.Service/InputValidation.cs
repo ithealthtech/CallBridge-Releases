@@ -59,7 +59,6 @@ public static partial class InputValidation
         var contactName = Clean(input.ContactName, 200);
         var phones = Phones(input.Phones, input.Phone);
         if (companyName.Length == 0) throw new ApiValidationException($"company_name_required_at_{index}");
-        if (phones.Count == 0) throw new ApiValidationException($"phone_required_at_{index}");
         var companyId = Clean(input.CompanyId, 200);
         if (companyId.Length == 0) companyId = "import-company-" + Slug(companyName);
         var contactId = Clean(input.ContactId, 200);

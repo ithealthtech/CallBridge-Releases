@@ -1,10 +1,10 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Release",
     [ValidatePattern('^win-(x64|arm64)$')]
     [string]$Runtime = "win-x64",
-    [string]$Version = "0.21.1"
+    [string]$Version = "0.22.0"
 )
 
 $ErrorActionPreference = "Stop"

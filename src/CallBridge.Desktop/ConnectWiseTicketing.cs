@@ -79,7 +79,6 @@ public sealed class ConnectWiseTicketing : IDisposable
         progress?.Report("Downloading ConnectWise Platform companies...");
         var companies = await PlatformClient.GetCompaniesAsync(refresh: true, cancellationToken);
         return companies
-            .Where(company => company.Phones.Length > 0)
             .Select(company => new ConnectWiseContactRecord(
                 company.Id,
                 company.Name,

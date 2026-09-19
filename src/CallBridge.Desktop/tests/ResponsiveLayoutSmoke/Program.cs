@@ -189,7 +189,7 @@ internal static class Program
         ShowRows(window, "More", new RowItem("Voicemail", "No new messages", "Call voicemail", "*97"));
         WaitWithDispatcher(window.Dispatcher, (Task)showHome.Invoke(window, null)!);
         AssertVisible(window, "PhoneStrip", "call strip after Home from More with search text");
-        if ((Element(window, "ListHeading") as TextBlock)?.Text != "Contacts" || Button(window, "HomeTabButton").Tag as string != "Active")
+        if ((Element(window, "ListHeading") as TextBlock)?.Text != "Contacts" || Button(window, "ContactsTabButton").Tag as string != "Active")
             throw new InvalidOperationException("Home must leave More even when the search box has text.");
 
         showSettings.Invoke(window, null);

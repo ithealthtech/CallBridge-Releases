@@ -36,7 +36,7 @@ public sealed class CallBridgeStore
             PRAGMA journal_mode=WAL;
             PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS companies (id TEXT PRIMARY KEY,name TEXT NOT NULL,updated_at TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY,company_id TEXT NOT NULL,name TEXT,updated_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY,company_id TEXT NOT NULL,name TEXT,source TEXT NOT NULL DEFAULT '',updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS phone_numbers (normalized TEXT NOT NULL,variant TEXT NOT NULL,company_id TEXT NOT NULL,contact_id TEXT,source TEXT NOT NULL,PRIMARY KEY(variant,company_id,contact_id));
             CREATE INDEX IF NOT EXISTS idx_phone_variant ON phone_numbers(variant);
             CREATE TABLE IF NOT EXISTS call_events (event_id TEXT PRIMARY KEY,provider TEXT NOT NULL,provider_call_id TEXT,direction TEXT,state TEXT,caller_number TEXT,called_number TEXT,extension TEXT,company_id TEXT,contact_id TEXT,occurred_at TEXT NOT NULL,received_at TEXT NOT NULL);
@@ -46,6 +46,9 @@ public sealed class CallBridgeStore
             CREATE INDEX IF NOT EXISTS idx_audit_events_occurred ON audit_events(occurred_at DESC);
             """;
         command.ExecuteNonQuery();
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE contacts ADD COLUMN source TEXT NOT NULL DEFAULT ''";
+        try { alter.ExecuteNonQuery(); } catch (SqliteException) { /* column already exists */ }
     }
 
     public IReadOnlyList<DirectoryRow> Directory(int limit = 200)
@@ -54,11 +57,11 @@ public sealed class CallBridgeStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT c.id,c.name,ct.id,ct.name,p.normalized,p.source
-            FROM phone_numbers p
-            JOIN companies c ON c.id=p.company_id
-            LEFT JOIN contacts ct ON ct.id=p.contact_id
-            GROUP BY c.id,ct.id,p.normalized,p.source
+            SELECT c.id,c.name,ct.id,ct.name,p.normalized,COALESCE(p.source,ct.source)
+            FROM contacts ct
+            JOIN companies c ON c.id=ct.company_id
+            LEFT JOIN phone_numbers p ON p.contact_id=ct.id
+            GROUP BY c.id,ct.id,p.normalized
             ORDER BY c.name,ct.name,p.normalized
             LIMIT $limit;
             """;
@@ -68,7 +71,7 @@ public sealed class CallBridgeStore
         while (reader.Read()) rows.Add(new(
             reader.GetString(0), reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
-            reader.GetString(4), reader.GetString(5)));
+            reader.IsDBNull(4) ? null : reader.GetString(4), reader.GetString(5)));
         return rows;
     }
 
@@ -77,6 +80,7 @@ public sealed class CallBridgeStore
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
         Execute(connection, transaction, "DELETE FROM phone_numbers WHERE source=$source", ("$source", source));
+        Execute(connection, transaction, "DELETE FROM contacts WHERE source=$source", ("$source", source));
         var now = DateTimeOffset.UtcNow.ToString("O");
         foreach (var record in records)
         {
@@ -85,8 +89,8 @@ public sealed class CallBridgeStore
                 ("$id", record.CompanyId!), ("$name", record.CompanyName!), ("$now", now));
             if (!string.IsNullOrWhiteSpace(record.ContactId))
                 Execute(connection, transaction,
-                    "INSERT INTO contacts(id,company_id,name,updated_at) VALUES($id,$company,$name,$now) ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,updated_at=excluded.updated_at",
-                    ("$id", record.ContactId!), ("$company", record.CompanyId!), ("$name", record.ContactName), ("$now", now));
+                    "INSERT INTO contacts(id,company_id,name,source,updated_at) VALUES($id,$company,$name,$source,$now) ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,source=excluded.source,updated_at=excluded.updated_at",
+                    ("$id", record.ContactId!), ("$company", record.CompanyId!), ("$name", record.ContactName), ("$source", source), ("$now", now));
             foreach (var phone in record.Phones ?? []) InsertPhone(connection, transaction, phone, record.CompanyId!, record.ContactId, source);
         }
         AddAudit(connection, transaction, "replace", "directory", source, "desktop-session");
@@ -113,7 +117,7 @@ public sealed class CallBridgeStore
             "INSERT INTO companies(id,name,updated_at) VALUES($id,$name,$now) ON CONFLICT(id) DO UPDATE SET name=excluded.name,updated_at=excluded.updated_at",
             ("$id", contact.CompanyId!), ("$name", contact.CompanyName!), ("$now", now));
         Execute(connection, transaction,
-            "INSERT INTO contacts(id,company_id,name,updated_at) VALUES($id,$company,$name,$now) ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,updated_at=excluded.updated_at",
+            "INSERT INTO contacts(id,company_id,name,source,updated_at) VALUES($id,$company,$name,'user-managed',$now) ON CONFLICT(id) DO UPDATE SET company_id=excluded.company_id,name=excluded.name,source=excluded.source,updated_at=excluded.updated_at",
             ("$id", contact.ContactId!), ("$company", contact.CompanyId!), ("$name", contact.ContactName), ("$now", now));
         Execute(connection, transaction, "DELETE FROM phone_numbers WHERE source IN ('user-managed','user-import') AND contact_id=$id", ("$id", contact.ContactId));
         foreach (var phone in contact.Phones ?? []) InsertPhone(connection, transaction, phone, contact.CompanyId!, contact.ContactId, "user-managed");

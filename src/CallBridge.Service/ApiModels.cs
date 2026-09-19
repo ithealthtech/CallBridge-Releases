@@ -35,7 +35,7 @@ public sealed record DirectoryRow(
     string CompanyName,
     string? ContactId,
     string? ContactName,
-    string Phone,
+    string? Phone,
     string Source);
 
 public sealed record PhoneMatch(

@@ -103,7 +103,7 @@ public sealed class ConnectWiseClient : IDisposable
                 var companyName = company.ValueKind == JsonValueKind.Object ? Property(company, "name") : "";
                 if (string.IsNullOrWhiteSpace(companyName) && company.ValueKind == JsonValueKind.Object) companyName = Property(company, "identifier");
                 var phones = ExtractPhones(contact).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                if (!string.IsNullOrWhiteSpace(contactId) && !string.IsNullOrWhiteSpace(companyId) && !string.IsNullOrWhiteSpace(companyName) && phones.Length > 0)
+                if (!string.IsNullOrWhiteSpace(contactId) && !string.IsNullOrWhiteSpace(companyId) && !string.IsNullOrWhiteSpace(companyName))
                     contacts.Add(new(companyId, companyName, contactId, contactName, phones));
             }
             if (count < pageSize) break;

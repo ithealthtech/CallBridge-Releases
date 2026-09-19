@@ -123,7 +123,7 @@ public partial class MainWindow : Window
         _callEventQueue = new(Path.Combine(Path.GetDirectoryName(_settingsPath)!, "call-events.queue"));
         InitializeComponent();
         ThemePalette.Register(this);
-        ThemePalette.Changed += () => { if (!_shutdownStarted) { UpdateProviderStatus(); SetActiveNav(SettingsView.Visibility == Visibility.Visible ? SettingsButton : _listTitle == MoreListTitle ? MoreTabButton : HomeTabButton); } };
+        ThemePalette.Changed += () => { if (!_shutdownStarted) { UpdateProviderStatus(); SetActiveNav(SettingsView.Visibility == Visibility.Visible ? SettingsButton : _listTitle == ContactsListTitle ? ContactsTabButton : _listTitle == MoreListTitle ? MoreTabButton : HomeTabButton); } };
         LoadSettings();
         RepairLaunchAtStartupRegistration();
         var localToken = EnsureLocalService();
@@ -1473,6 +1473,7 @@ public partial class MainWindow : Window
         RowsList.SelectionChanged += (_, _) => UpdateListActionState();
 
         HomeTabButton.Click += async (_, _) => await ShowHomeAsync();
+        ContactsTabButton.Click += async (_, _) => await ShowContactsTabAsync();
         MoreTabButton.Click += (_, _) => ShowRows(MoreListTitle, MoreSubtitle, MoreRows());
         SettingsButton.Click += (_, _) => ShowSettings();
 
@@ -2525,6 +2526,7 @@ public partial class MainWindow : Window
     private IEnumerable<Button> NavButtons()
     {
         yield return HomeTabButton;
+        yield return ContactsTabButton;
         yield return MoreTabButton;
         yield return SettingsButton;
     }
@@ -2611,13 +2613,21 @@ public partial class MainWindow : Window
         else await NavigateToRowsAsync(RecentCallsTitle, "Your latest inbound, outbound, and missed calls", HistoryRowsAsync);
     }
 
+    private Task ShowContactsTabAsync() =>
+        NavigateToRowsAsync(ContactsListTitle, "All contacts from ConnectWise and the local directory", async () =>
+        {
+            _contactRowsCache = null;
+            var rows = await ContactRowsAsync();
+            if (rows.Any(row => row.Action is "Call" or "Link")) _contactRowsCache = rows;
+            return rows;
+        });
+
     private Task ShowContactSearchAsync() =>
         NavigateToRowsAsync(ContactsListTitle, "Matching contacts from the directory", async () =>
         {
             if (_contactRowsCache is not null) return _contactRowsCache;
             var rows = await ContactRowsAsync();
-            // Placeholder rows mean the directory failed or is empty; don't cache them so the next search retries.
-            if (rows.Any(row => row.Action == "Call")) _contactRowsCache = rows;
+            if (rows.Any(row => row.Action is "Call" or "Link")) _contactRowsCache = rows;
             return rows;
         });
 
@@ -2664,7 +2674,7 @@ public partial class MainWindow : Window
         var more = title == MoreListTitle;
         var contacts = title == ContactsListTitle;
         var recent = title == RecentCallsTitle;
-        SetActiveNav(more ? MoreTabButton : HomeTabButton);
+        SetActiveNav(contacts ? ContactsTabButton : more ? MoreTabButton : HomeTabButton);
         ListHeading.Text = title;
         ListSubheading.Text = subtitle;
         _currentRows = rows;
@@ -4307,8 +4317,10 @@ public partial class MainWindow : Window
                     var contactId = Value(record, "contactId");
                     var companyId = Value(record, "companyId");
                     var title = string.IsNullOrWhiteSpace(contact) ? company : contact;
-                    return new RowItem(title, $"{phone} - {company}", "Call", phone, contactId, company, companyId);
-                }).Where(r => !string.IsNullOrWhiteSpace(r.Title) && !string.IsNullOrWhiteSpace(r.Detail)).ToList();
+                    var detail = string.IsNullOrWhiteSpace(phone) ? company : $"{phone} – {company}";
+                    var action = string.IsNullOrWhiteSpace(phone) ? "Link" : "Call";
+                    return new RowItem(title, detail, action, phone, contactId, company, companyId);
+                }).Where(r => !string.IsNullOrWhiteSpace(r.Title)).ToList();
                 return rows.Count > 0 ? rows : EmptyRows("The directory is empty. Sync ConnectWise contacts or import a CSV in Settings.");
             }
         }
